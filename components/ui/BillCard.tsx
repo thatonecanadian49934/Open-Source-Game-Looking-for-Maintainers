@@ -3,7 +3,7 @@ import React from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Colors, Spacing, Radius, FontSize, FontWeight } from '@/constants/theme';
-import { Bill, BILL_STAGE_NAMES, getStageProgress } from '@/services/billService';
+import { Bill, BILL_STAGE_NAMES, VOTE_STAGES, getStageProgress } from '@/services/billService';
 import { PARTIES } from '@/constants/parties';
 
 interface BillCardProps {
@@ -11,6 +11,7 @@ interface BillCardProps {
   onVote?: (vote: 'yea' | 'nay' | 'abstain') => void;
   onAccelerate?: () => void;
   onPress?: () => void;
+  isExpanded?: boolean;
 }
 
 const TYPE_COLORS: Record<string, string> = {
@@ -19,70 +20,135 @@ const TYPE_COLORS: Record<string, string> = {
   opposition: Colors.conservative,
 };
 
-export const BillCard = React.memo(function BillCard({ bill, onVote, onAccelerate, onPress }: BillCardProps) {
+const TYPE_LABELS: Record<string, string> = {
+  government: "GOV'T BILL",
+  private_member: 'PRIVATE',
+  opposition: 'OPPOSITION',
+};
+
+export const BillCard = React.memo(function BillCard({ bill, onVote, onAccelerate, onPress, isExpanded }: BillCardProps) {
   const party = PARTIES.find(p => p.id === bill.sponsorParty);
   const typeColor = TYPE_COLORS[bill.type] || Colors.textSecondary;
   const progress = getStageProgress(bill);
-  const stageName = BILL_STAGE_NAMES[bill.stage] || bill.stage;
-  
+
   const isDefeated = bill.stage === 'defeated';
   const isPassed = bill.stage === 'royal_assent' || bill.passed;
-  
-  const stageColor = isDefeated ? Colors.error : isPassed ? Colors.success : Colors.gold;
+  const isVoteStage = VOTE_STAGES.has(bill.stage);
+  const stageColor = isDefeated ? Colors.error : isPassed ? Colors.success : isVoteStage ? Colors.warning : Colors.gold;
+  const stageName = BILL_STAGE_NAMES[bill.stage] || bill.stage;
+
+  const yeas = bill.votesFor;
+  const nays = bill.votesAgainst;
+  const total = yeas + nays || 1;
+  const yeaPct = (yeas / total) * 100;
 
   return (
     <Pressable
       onPress={onPress}
-      style={({ pressed }) => [styles.card, pressed && styles.pressed]}
+      style={({ pressed }) => [
+        styles.card,
+        isExpanded && styles.cardExpanded,
+        pressed && styles.pressed,
+      ]}
     >
+      {/* Type + status header */}
       <View style={styles.header}>
         <View style={styles.typeBadges}>
           <View style={[styles.typeBadge, { backgroundColor: typeColor + '22', borderColor: typeColor + '44' }]}>
-            <Text style={[styles.typeText, { color: typeColor }]}>
-              {bill.type === 'government' ? 'GOV\'T BILL' : bill.type === 'private_member' ? 'PRIVATE' : 'OPPOSITION'}
-            </Text>
+            <Text style={[styles.typeText, { color: typeColor }]}>{TYPE_LABELS[bill.type] || bill.type}</Text>
           </View>
           {bill.isPlayerBill ? (
             <View style={styles.playerBillBadge}>
               <Text style={styles.playerBillText}>YOUR BILL</Text>
             </View>
           ) : null}
+          {bill.accelerated ? (
+            <View style={styles.acceleratedBadge}>
+              <MaterialCommunityIcons name="fast-forward" size={8} color={Colors.error} />
+              <Text style={styles.acceleratedText}>CLOSURE</Text>
+            </View>
+          ) : null}
         </View>
-        <View style={[styles.statusBadge, { backgroundColor: stageColor + '22' }]}>
-          <Text style={[styles.statusText, { color: stageColor }]}>
-            {isPassed ? '✓ PASSED' : isDefeated ? '✗ DEFEATED' : stageName}
-          </Text>
+        <View style={styles.headerRight}>
+          <View style={[styles.statusBadge, { backgroundColor: stageColor + '22' }]}>
+            {isVoteStage ? <MaterialCommunityIcons name="gavel" size={9} color={stageColor} /> : null}
+            <Text style={[styles.statusText, { color: stageColor }]}>
+              {isPassed ? '✓ PASSED' : isDefeated ? '✗ DEFEATED' : stageName}
+            </Text>
+          </View>
+          <MaterialCommunityIcons
+            name={isExpanded ? 'chevron-up' : 'chevron-down'}
+            size={16}
+            color={Colors.textMuted}
+          />
         </View>
       </View>
-      
-      <Text style={styles.title} numberOfLines={2}>{bill.title}</Text>
-      <Text style={styles.sponsor}>{bill.sponsorName}</Text>
-      
+
+      {/* Title + sponsor */}
+      <Text style={styles.title} numberOfLines={isExpanded ? undefined : 2}>{bill.title}</Text>
+      <View style={styles.sponsorRow}>
+        <View style={[styles.sponsorDot, { backgroundColor: party?.color || Colors.textMuted }]} />
+        <Text style={styles.sponsor} numberOfLines={1}>{bill.sponsorName}</Text>
+      </View>
+
+      {/* Progress bar — full pipeline */}
       <View style={styles.progressContainer}>
         <View style={styles.progressBar}>
-          <View style={[styles.progressFill, { width: `${progress}%` as any, backgroundColor: stageColor }]} />
+          <View style={[styles.progressFill, {
+            width: `${progress}%` as any,
+            backgroundColor: isPassed ? Colors.success : isDefeated ? Colors.error : stageColor,
+          }]} />
         </View>
         <Text style={styles.progressText}>{Math.round(progress)}%</Text>
       </View>
-      
-      <View style={styles.meta}>
-        <View style={styles.metaItem}>
-          <MaterialCommunityIcons name="check-circle" size={12} color={Colors.success} />
-          <Text style={styles.metaText}>{bill.votesFor} Yea</Text>
+
+      {/* Vote tally */}
+      {(yeas > 0 || nays > 0) ? (
+        <View style={styles.tally}>
+          <View style={styles.tallyBar}>
+            <View style={[styles.tallyYea, { width: `${yeaPct}%` as any }]} />
+          </View>
+          <View style={styles.tallyLabels}>
+            <View style={styles.tallyItem}>
+              <View style={[styles.tallyDot, { backgroundColor: Colors.success }]} />
+              <Text style={styles.tallyText}>{yeas} Yea</Text>
+            </View>
+            <View style={styles.tallyItem}>
+              <View style={[styles.tallyDot, { backgroundColor: Colors.error }]} />
+              <Text style={styles.tallyText}>{nays} Nay</Text>
+            </View>
+            <Text style={styles.fiscalText}>{bill.fiscalImpact}</Text>
+          </View>
         </View>
-        <View style={styles.metaItem}>
-          <MaterialCommunityIcons name="close-circle" size={12} color={Colors.error} />
-          <Text style={styles.metaText}>{bill.votesAgainst} Nay</Text>
+      ) : (
+        <View style={styles.tallyLabels}>
+          <Text style={styles.fiscalText}>{bill.fiscalImpact}</Text>
         </View>
-        <View style={styles.metaItem}>
-          <MaterialCommunityIcons name="cash" size={12} color={Colors.gold} />
-          <Text style={styles.metaText}>{bill.fiscalImpact}</Text>
+      )}
+
+      {/* Weeks remaining indicator */}
+      {!isDefeated && !isPassed ? (
+        <View style={styles.weeksRow}>
+          <MaterialCommunityIcons name="clock-outline" size={11} color={Colors.textMuted} />
+          <Text style={styles.weeksText}>
+            {bill.accelerated
+              ? 'Vote forced — this week'
+              : isVoteStage
+              ? `Vote in ${bill.stageWeeksRemaining} week${bill.stageWeeksRemaining !== 1 ? 's' : ''}`
+              : `Advances in ${bill.stageWeeksRemaining} week${bill.stageWeeksRemaining !== 1 ? 's' : ''}`}
+          </Text>
+          {bill.amendments.length > 0 ? (
+            <View style={styles.amendmentsBadge}>
+              <Text style={styles.amendmentsCount}>{bill.amendments.length} amend.</Text>
+            </View>
+          ) : null}
         </View>
-      </View>
-      
+      ) : null}
+
+      {/* Vote buttons */}
       {onVote && !isDefeated && !isPassed ? (
         <View style={styles.voteSection}>
-          <Text style={styles.voteLabel}>YOUR VOTE:</Text>
+          <Text style={styles.voteLabel}>YOUR VOTE — Party will follow your lead:</Text>
           <View style={styles.voteButtons}>
             {(['yea', 'nay', 'abstain'] as const).map(vote => (
               <Pressable
@@ -90,33 +156,48 @@ export const BillCard = React.memo(function BillCard({ bill, onVote, onAccelerat
                 onPress={() => onVote(vote)}
                 style={({ pressed }) => [
                   styles.voteBtn,
-                  bill.playerVote === vote && styles.voteBtnSelected,
-                  vote === 'yea' && bill.playerVote === vote && { backgroundColor: Colors.success + '33', borderColor: Colors.success },
-                  vote === 'nay' && bill.playerVote === vote && { backgroundColor: Colors.error + '33', borderColor: Colors.error },
-                  pressed && styles.voteBtnPressed,
+                  bill.playerVote === vote && vote === 'yea' && styles.voteBtnYea,
+                  bill.playerVote === vote && vote === 'nay' && styles.voteBtnNay,
+                  bill.playerVote === vote && vote === 'abstain' && styles.voteBtnAbstain,
+                  pressed && { opacity: 0.7 },
                 ]}
               >
                 <Text style={[
                   styles.voteBtnText,
-                  vote === 'yea' && bill.playerVote === vote && { color: Colors.success },
-                  vote === 'nay' && bill.playerVote === vote && { color: Colors.error },
+                  bill.playerVote === vote && vote === 'yea' && { color: Colors.success },
+                  bill.playerVote === vote && vote === 'nay' && { color: Colors.error },
+                  bill.playerVote === vote && vote === 'abstain' && { color: Colors.textSecondary },
                 ]}>
-                  {vote.toUpperCase()}
+                  {vote === 'yea' ? '✓ YEA' : vote === 'nay' ? '✗ NAY' : '— ABSTAIN'}
                 </Text>
               </Pressable>
             ))}
           </View>
+          {bill.playerVote ? (
+            <Text style={styles.voteFollowNote}>
+              ~85% of your party's MPs will follow your {bill.playerVote.toUpperCase()} vote.
+            </Text>
+          ) : null}
         </View>
       ) : null}
-      
-      {onAccelerate && !isDefeated && !isPassed && !bill.accelerated ? (
+
+      {/* Accelerate button */}
+      {onAccelerate && !isDefeated && !isPassed ? (
         <Pressable
           onPress={onAccelerate}
           style={({ pressed }) => [styles.accelerateBtn, pressed && { opacity: 0.7 }]}
         >
-          <MaterialCommunityIcons name="fast-forward" size={14} color={Colors.warning} />
-          <Text style={styles.accelerateText}>Force Vote</Text>
+          <MaterialCommunityIcons name="fast-forward" size={13} color={Colors.warning} />
+          <Text style={styles.accelerateText}>Invoke Closure — Force Immediate Vote</Text>
         </Pressable>
+      ) : null}
+
+      {/* Pipeline hint */}
+      {!isExpanded ? (
+        <View style={styles.expandHint}>
+          <MaterialCommunityIcons name="sitemap" size={10} color={Colors.textMuted} />
+          <Text style={styles.expandHintText}>Tap to view full legislative pipeline</Text>
+        </View>
       ) : null}
     </Pressable>
   );
@@ -129,7 +210,11 @@ const styles = StyleSheet.create({
     padding: Spacing.md,
     borderWidth: 1,
     borderColor: Colors.surfaceBorder,
-    marginBottom: Spacing.sm,
+  },
+  cardExpanded: {
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+    borderBottomColor: 'transparent',
   },
   pressed: {
     opacity: 0.9,
@@ -145,10 +230,12 @@ const styles = StyleSheet.create({
   },
   typeBadges: {
     flexDirection: 'row',
-    gap: 6,
+    gap: 5,
+    flexWrap: 'wrap',
+    flex: 1,
   },
   typeBadge: {
-    paddingHorizontal: 8,
+    paddingHorizontal: 7,
     paddingVertical: 3,
     borderRadius: Radius.full,
     borderWidth: 1,
@@ -159,12 +246,12 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   playerBillBadge: {
-    paddingHorizontal: 8,
+    paddingHorizontal: 7,
     paddingVertical: 3,
     borderRadius: Radius.full,
     backgroundColor: Colors.gold + '22',
     borderWidth: 1,
-    borderColor: Colors.gold + '44',
+    borderColor: Colors.gold + '55',
   },
   playerBillText: {
     fontSize: 9,
@@ -172,8 +259,33 @@ const styles = StyleSheet.create({
     color: Colors.gold,
     letterSpacing: 0.5,
   },
+  acceleratedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.error + '22',
+    borderWidth: 1,
+    borderColor: Colors.error + '44',
+  },
+  acceleratedText: {
+    fontSize: 9,
+    fontWeight: FontWeight.bold,
+    color: Colors.error,
+    letterSpacing: 0.5,
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
   statusBadge: {
-    paddingHorizontal: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 7,
     paddingVertical: 3,
     borderRadius: Radius.full,
   },
@@ -189,27 +301,38 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     lineHeight: 20,
   },
+  sponsorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginBottom: Spacing.sm,
+  },
+  sponsorDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
   sponsor: {
     fontSize: FontSize.xs,
     color: Colors.textSecondary,
-    marginBottom: Spacing.sm,
+    flex: 1,
   },
   progressContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginBottom: Spacing.sm,
+    marginBottom: 8,
   },
   progressBar: {
     flex: 1,
-    height: 4,
+    height: 5,
     backgroundColor: Colors.surfaceBorder,
-    borderRadius: 2,
+    borderRadius: 3,
     overflow: 'hidden',
   },
   progressFill: {
     height: '100%',
-    borderRadius: 2,
+    borderRadius: 3,
   },
   progressText: {
     fontSize: 10,
@@ -217,65 +340,127 @@ const styles = StyleSheet.create({
     minWidth: 30,
     textAlign: 'right',
   },
-  meta: {
+  tally: {
+    gap: 4,
+    marginBottom: 6,
+  },
+  tallyBar: {
+    height: 4,
+    backgroundColor: Colors.error + '44',
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+  tallyYea: {
+    height: '100%',
+    backgroundColor: Colors.success + 'AA',
+    borderRadius: 2,
+  },
+  tallyLabels: {
     flexDirection: 'row',
+    alignItems: 'center',
     gap: Spacing.md,
-    marginBottom: Spacing.sm,
     flexWrap: 'wrap',
   },
-  metaItem: {
+  tallyItem: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
   },
-  metaText: {
+  tallyDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  tallyText: {
     fontSize: FontSize.xs,
     color: Colors.textSecondary,
+  },
+  fiscalText: {
+    fontSize: FontSize.xs,
+    color: Colors.gold,
+    fontWeight: FontWeight.medium,
+    marginLeft: 'auto',
+  },
+  weeksRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 4,
+  },
+  weeksText: {
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+    flex: 1,
+  },
+  amendmentsBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.warning + '22',
+  },
+  amendmentsCount: {
+    fontSize: 9,
+    color: Colors.warning,
+    fontWeight: FontWeight.medium,
   },
   voteSection: {
     borderTopWidth: 1,
     borderTopColor: Colors.divider,
     paddingTop: Spacing.sm,
-    marginTop: Spacing.xs,
+    marginTop: Spacing.sm,
+    gap: 8,
   },
   voteLabel: {
     fontSize: 10,
     fontWeight: FontWeight.semibold,
     color: Colors.textMuted,
-    letterSpacing: 0.5,
-    marginBottom: 8,
+    letterSpacing: 0.3,
   },
   voteButtons: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 6,
   },
   voteBtn: {
     flex: 1,
-    paddingVertical: 8,
+    paddingVertical: 9,
     borderRadius: Radius.sm,
     borderWidth: 1,
     borderColor: Colors.surfaceBorder,
     alignItems: 'center',
     backgroundColor: Colors.surfaceElevated,
   },
-  voteBtnSelected: {},
-  voteBtnPressed: {
-    opacity: 0.7,
+  voteBtnYea: {
+    backgroundColor: Colors.success + '22',
+    borderColor: Colors.success,
+  },
+  voteBtnNay: {
+    backgroundColor: Colors.error + '22',
+    borderColor: Colors.error,
+  },
+  voteBtnAbstain: {
+    backgroundColor: Colors.textMuted + '22',
+    borderColor: Colors.textMuted,
   },
   voteBtnText: {
     fontSize: FontSize.xs,
     fontWeight: FontWeight.semibold,
     color: Colors.textSecondary,
   },
+  voteFollowNote: {
+    fontSize: 10,
+    color: Colors.textMuted,
+    textAlign: 'center',
+    fontStyle: 'italic',
+  },
   accelerateBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    paddingVertical: 8,
+    paddingVertical: 9,
     borderRadius: Radius.sm,
     borderWidth: 1,
-    borderColor: Colors.warning + '44',
+    borderColor: Colors.warning + '55',
     backgroundColor: Colors.warning + '11',
     marginTop: Spacing.xs,
   },
@@ -283,5 +468,16 @@ const styles = StyleSheet.create({
     fontSize: FontSize.xs,
     fontWeight: FontWeight.semibold,
     color: Colors.warning,
+  },
+  expandHint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    marginTop: 8,
+  },
+  expandHintText: {
+    fontSize: 9,
+    color: Colors.textMuted,
   },
 });

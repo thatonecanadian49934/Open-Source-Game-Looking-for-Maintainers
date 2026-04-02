@@ -9,7 +9,13 @@ import {
   NewsArticle,
   CabinetMember,
 } from '@/services/gameEngine';
-import { Bill, initializeBills, advanceBills, createPlayerBill } from '@/services/billService';
+import {
+  Bill,
+  initializeBills,
+  advanceBills,
+  createPlayerBill,
+  accelerateBillNow,
+} from '@/services/billService';
 import {
   CampaignState,
   ElectionNightResult,
@@ -17,15 +23,31 @@ import {
   simulateElectionResults,
   campaignInProvince,
 } from '@/services/electionService';
-import { generatePressStatementReaction, generatePolicyNews } from '@/services/newsService';
+import {
+  generatePressStatementReaction,
+  generatePolicyNews,
+  generateEventChoiceNews,
+  generateAINews,
+} from '@/services/newsService';
 import { PARTIES } from '@/constants/parties';
 import { TOTAL_SEATS, MAJORITY_SEATS } from '@/constants/provinces';
+import { getSupabaseClient } from '@/template';
 
+// ── Shadow Cabinet ─────────────────────────────────────────────────────────────
+export interface ShadowCabinetMember {
+  portfolio: string;
+  name: string;
+  loyalty: number;
+  competence: number;
+}
+
+// ── Context Type ───────────────────────────────────────────────────────────────
 export interface GameContextType {
   gameState: GameState | null;
   bills: Bill[];
   campaignState: CampaignState | null;
   electionResult: ElectionNightResult | null;
+  shadowCabinet: ShadowCabinetMember[];
 
   // Setup
   startGame: (partyId: string, playerName: string) => void;
@@ -33,17 +55,23 @@ export interface GameContextType {
   // Weekly actions
   advanceWeek: (eventChoices: Record<string, string>) => void;
 
-  // Parliament
+  // Parliament — bills
   voteOnBill: (billId: string, vote: 'yea' | 'nay' | 'abstain') => void;
   accelerateBill: (billId: string) => void;
   createBill: (title: string, description: string, topic: string, fiscalImpact: string) => void;
+
+  // Parliament — confidence & dissolution
   callConfidenceVote: () => { passed: boolean; message: string };
   dissolveParliament: () => void;
 
-  // Cabinet
+  // Cabinet (governing)
   appointMinister: (portfolio: string, name: string) => void;
   fireMinister: (portfolio: string) => void;
   instructMinister: (portfolio: string, instruction: string) => void;
+
+  // Shadow Cabinet (opposition)
+  appointShadowMinister: (portfolio: string, name: string) => void;
+  removeShadowMinister: (portfolio: string) => void;
 
   // Communication
   issuePressStatement: (statement: string) => void;
@@ -60,7 +88,7 @@ export interface GameContextType {
   // Leadership Review
   resolveLeadershipReview: (survive: boolean) => void;
 
-  // Confidence Vote
+  // Governing confidence trigger
   callGoverningConfidenceVote: () => void;
 }
 
@@ -71,7 +99,11 @@ export function GameProvider({ children }: { children: ReactNode }) {
   const [bills, setBills] = useState<Bill[]>([]);
   const [campaignState, setCampaignState] = useState<CampaignState | null>(null);
   const [electionResult, setElectionResult] = useState<ElectionNightResult | null>(null);
+  const [shadowCabinet, setShadowCabinet] = useState<ShadowCabinetMember[]>([]);
 
+  const supabase = getSupabaseClient();
+
+  // ── Start Game ──────────────────────────────────────────────────────────────
   const startGame = useCallback((partyId: string, playerName: string) => {
     const state = initializeGame(partyId, playerName);
     const initialBills = initializeBills(1);
@@ -79,47 +111,94 @@ export function GameProvider({ children }: { children: ReactNode }) {
     setBills(initialBills);
     setCampaignState(null);
     setElectionResult(null);
+    setShadowCabinet([]);
   }, []);
 
+  // ── Advance Week ────────────────────────────────────────────────────────────
   const advanceWeek = useCallback((eventChoices: Record<string, string>) => {
     setGameState(prev => {
       if (!prev) return prev;
+
+      // Generate event-choice news articles (AI-powered async, non-blocking)
+      Object.entries(eventChoices).forEach(([eventId, choiceId]) => {
+        const event = prev.currentEvents.find(e => e.id === eventId);
+        const choice = event?.choices.find(c => c.id === choiceId);
+        if (event && choice) {
+          // Fire and forget — AI news in background
+          generateAINews(
+            supabase,
+            'event_choice',
+            choice.newsHeadline,
+            prev.playerPartyId,
+            prev.playerName,
+            prev.isGoverning,
+            prev.stats,
+            prev.currentWeek,
+            3
+          ).then(articles => {
+            if (articles.length > 0) {
+              setGameState(gs => {
+                if (!gs) return gs;
+                return {
+                  ...gs,
+                  newsHistory: [...articles, ...gs.newsHistory].slice(0, 60),
+                };
+              });
+            }
+          });
+        }
+      });
+
       const newState = processWeek(prev, eventChoices);
 
-      setBills(prevBills => advanceBills(
-        prevBills,
-        newState.currentWeek,
-        newState.seats[newState.playerPartyId] || 0,
-        TOTAL_SEATS
-      ));
+      setBills(prevBills =>
+        advanceBills(
+          prevBills,
+          newState.currentWeek,
+          newState.playerPartyId,
+          newState.seats[newState.playerPartyId] || 0,
+          TOTAL_SEATS,
+          newState.isGoverning
+        )
+      );
 
       return newState;
     });
-  }, []);
+  }, [supabase]);
 
+  // ── Bill Actions ────────────────────────────────────────────────────────────
   const voteOnBill = useCallback((billId: string, vote: 'yea' | 'nay' | 'abstain') => {
     setBills(prev => prev.map(b => b.id === billId ? { ...b, playerVote: vote } : b));
   }, []);
 
   const accelerateBill = useCallback((billId: string) => {
-    setBills(prev => prev.map(b => b.id === billId ? { ...b, accelerated: true } : b));
+    setGameState(prev => {
+      if (!prev) return prev;
+      setBills(prevBills =>
+        prevBills.map(b => b.id === billId ? accelerateBillNow(b, prev.currentWeek) : b)
+      );
+      return prev;
+    });
   }, []);
 
   const createBill = useCallback((title: string, description: string, topic: string, fiscalImpact: string) => {
     setGameState(prev => {
       if (!prev) return prev;
-      const newBill = createPlayerBill(title, description, topic, fiscalImpact, prev.playerPartyId, prev.playerName, prev.currentWeek);
+      const newBill = createPlayerBill(
+        title, description, topic, fiscalImpact,
+        prev.playerPartyId, prev.playerName, prev.currentWeek, prev.isGoverning
+      );
       setBills(prevBills => [newBill, ...prevBills]);
       return prev;
     });
   }, []);
 
+  // ── Confidence & Dissolution ────────────────────────────────────────────────
   const callConfidenceVote = useCallback((): { passed: boolean; message: string } => {
     let result = { passed: false, message: '' };
 
     setGameState(prev => {
       if (!prev) return prev;
-
       const govSeats = Math.max(...Object.values(prev.seats));
       const rand = Math.random();
       const passed = govSeats < MAJORITY_SEATS && rand > 0.6;
@@ -141,7 +220,6 @@ export function GameProvider({ children }: { children: ReactNode }) {
           confidenceVoteCooldown: 12,
         };
       }
-
       return { ...prev, confidenceVoteCooldown: 12 };
     });
 
@@ -161,6 +239,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  // ── Cabinet (Governing) ─────────────────────────────────────────────────────
   const appointMinister = useCallback((portfolio: string, name: string) => {
     setGameState(prev => {
       if (!prev) return prev;
@@ -171,13 +250,11 @@ export function GameProvider({ children }: { children: ReactNode }) {
         loyalty: 70 + Math.floor(Math.random() * 20),
         competence: 60 + Math.floor(Math.random() * 30),
       };
-
       if (existingIdx >= 0) {
         const newCabinet = [...prev.cabinet];
         newCabinet[existingIdx] = newMember;
         return { ...prev, cabinet: newCabinet };
       }
-
       return { ...prev, cabinet: [...prev.cabinet, newMember] };
     });
   }, []);
@@ -194,17 +271,27 @@ export function GameProvider({ children }: { children: ReactNode }) {
       if (!prev) return prev;
       const minister = prev.cabinet.find(m => m.portfolio === portfolio);
       if (!minister) return prev;
-
       const loyaltyBonus = minister.loyalty > 70 ? 2 : -1;
-      const newsArticle: NewsArticle = {
-        id: `minister_${Date.now()}`,
-        week: prev.currentWeek,
-        outlet: 'CBC News',
-        headline: `${minister.name} receives new direction from party leader on ${portfolio} file`,
-        body: `The ${portfolio} Minister has been given new instructions by the party leader regarding: "${instruction.substring(0, 100)}". Parliamentary observers note this signals a shift in government priorities.`,
-        sentiment: 'neutral',
-        topic: 'Cabinet',
-      };
+
+      // Trigger AI news in background
+      generateAINews(
+        supabase,
+        'minister_directive',
+        `Minister ${minister.name} received directive on ${portfolio}: "${instruction.substring(0, 80)}"`,
+        prev.playerPartyId,
+        prev.playerName,
+        true,
+        prev.stats,
+        prev.currentWeek,
+        2
+      ).then(articles => {
+        if (articles.length > 0) {
+          setGameState(gs => {
+            if (!gs) return gs;
+            return { ...gs, newsHistory: [...articles, ...gs.newsHistory].slice(0, 60) };
+          });
+        }
+      });
 
       return {
         ...prev,
@@ -212,16 +299,65 @@ export function GameProvider({ children }: { children: ReactNode }) {
           ...prev.stats,
           governmentApproval: Math.min(95, (prev.stats.governmentApproval || 0) + loyaltyBonus),
         },
-        newsHistory: [newsArticle, ...prev.newsHistory].slice(0, 50),
       };
+    });
+  }, [supabase]);
+
+  // ── Shadow Cabinet (Opposition) ─────────────────────────────────────────────
+  const appointShadowMinister = useCallback((portfolio: string, name: string) => {
+    setShadowCabinet(prev => {
+      const existingIdx = prev.findIndex(m => m.portfolio === portfolio);
+      const member: ShadowCabinetMember = {
+        portfolio,
+        name,
+        loyalty: 65 + Math.floor(Math.random() * 25),
+        competence: 55 + Math.floor(Math.random() * 35),
+      };
+      if (existingIdx >= 0) {
+        const updated = [...prev];
+        updated[existingIdx] = member;
+        return updated;
+      }
+      return [...prev, member];
     });
   }, []);
 
+  const removeShadowMinister = useCallback((portfolio: string) => {
+    setShadowCabinet(prev => prev.filter(m => m.portfolio !== portfolio));
+  }, []);
+
+  // ── Communication ───────────────────────────────────────────────────────────
   const issuePressStatement = useCallback((statement: string) => {
     setGameState(prev => {
       if (!prev) return prev;
-      const articles = generatePressStatementReaction(statement, prev.playerPartyId, prev.playerName, prev.currentWeek);
       const approvalChange = statement.length > 100 ? 2 : 1;
+
+      // AI news in background
+      generateAINews(
+        supabase,
+        'press_statement',
+        statement.substring(0, 150),
+        prev.playerPartyId,
+        prev.playerName,
+        prev.isGoverning,
+        prev.stats,
+        prev.currentWeek,
+        4
+      ).then(articles => {
+        if (articles.length > 0) {
+          setGameState(gs => {
+            if (!gs) return gs;
+            return { ...gs, newsHistory: [...articles, ...gs.newsHistory].slice(0, 60) };
+          });
+        } else {
+          // Fallback to static
+          const staticArticles = generatePressStatementReaction(statement, prev.playerPartyId, prev.playerName, prev.currentWeek);
+          setGameState(gs => {
+            if (!gs) return gs;
+            return { ...gs, newsHistory: [...staticArticles, ...gs.newsHistory].slice(0, 60) };
+          });
+        }
+      });
 
       return {
         ...prev,
@@ -230,15 +366,38 @@ export function GameProvider({ children }: { children: ReactNode }) {
           approvalRating: Math.min(95, prev.stats.approvalRating + approvalChange),
           partyStanding: Math.min(95, prev.stats.partyStanding + 1),
         },
-        newsHistory: [...articles, ...prev.newsHistory].slice(0, 50),
       };
     });
-  }, []);
+  }, [supabase]);
 
   const submitPolicy = useCallback((policyText: string) => {
     setGameState(prev => {
       if (!prev) return prev;
-      const articles = generatePolicyNews(policyText, prev.playerPartyId, prev.playerName, prev.currentWeek);
+
+      generateAINews(
+        supabase,
+        'policy',
+        `${PARTIES.find(p => p.id === prev.playerPartyId)?.shortName} releases new policy: "${policyText.substring(0, 100)}"`,
+        prev.playerPartyId,
+        prev.playerName,
+        prev.isGoverning,
+        prev.stats,
+        prev.currentWeek,
+        3
+      ).then(articles => {
+        if (articles.length > 0) {
+          setGameState(gs => {
+            if (!gs) return gs;
+            return { ...gs, newsHistory: [...articles, ...gs.newsHistory].slice(0, 60) };
+          });
+        } else {
+          const staticArticles = generatePolicyNews(policyText, prev.playerPartyId, prev.playerName, prev.currentWeek);
+          setGameState(gs => {
+            if (!gs) return gs;
+            return { ...gs, newsHistory: [...staticArticles, ...gs.newsHistory].slice(0, 60) };
+          });
+        }
+      });
 
       return {
         ...prev,
@@ -247,11 +406,11 @@ export function GameProvider({ children }: { children: ReactNode }) {
           approvalRating: Math.min(95, prev.stats.approvalRating + 3),
           partyStanding: Math.min(95, prev.stats.partyStanding + 2),
         },
-        newsHistory: [...articles, ...prev.newsHistory].slice(0, 50),
       };
     });
-  }, []);
+  }, [supabase]);
 
+  // ── Election ────────────────────────────────────────────────────────────────
   const startElectionCampaign = useCallback(() => {
     setGameState(prev => {
       if (!prev) return prev;
@@ -268,19 +427,15 @@ export function GameProvider({ children }: { children: ReactNode }) {
     });
   }, [gameState]);
 
-  // Now accepts a pre-computed result (computed locally in election screen to avoid async race)
   const completeCampaign = useCallback((preComputedResult: ElectionNightResult) => {
     setElectionResult(preComputedResult);
-
     setGameState(prev => {
       if (!prev) return prev;
 
       const { totalSeats, playerSeats, playerVotePct } = preComputedResult;
-
       const maxSeats = Math.max(...Object.values(totalSeats));
       const playerWon = playerSeats >= MAJORITY_SEATS || playerSeats === maxSeats;
 
-      // Rebuild provincial seats from province results
       const newProvincialSeats: Record<string, Record<string, number>> = {};
       preComputedResult.provinceResults.forEach(r => {
         newProvincialSeats[r.provinceCode] = r.seats;
@@ -310,20 +465,23 @@ export function GameProvider({ children }: { children: ReactNode }) {
             votePct: playerVotePct,
           },
         ],
+        cabinet: playerWon ? prev.cabinet : [],
       };
 
       setBills(initializeBills(1));
       setCampaignState(null);
+      // Clear shadow cabinet if they won (become governing)
+      if (playerWon) setShadowCabinet([]);
 
       return newState;
     });
   }, []);
 
+  // ── Question Period ─────────────────────────────────────────────────────────
   const answerQuestion = useCallback((question: string, answer: string, performance: 'excellent' | 'good' | 'poor') => {
     setGameState(prev => {
       if (!prev) return prev;
       const effect = performance === 'excellent' ? 5 : performance === 'good' ? 2 : -4;
-
       return {
         ...prev,
         stats: {
@@ -335,6 +493,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  // ── Leadership Review ───────────────────────────────────────────────────────
   const resolveLeadershipReview = useCallback((survive: boolean) => {
     setGameState(prev => {
       if (!prev) return prev;
@@ -369,6 +528,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
       bills,
       campaignState,
       electionResult,
+      shadowCabinet,
       startGame,
       advanceWeek,
       voteOnBill,
@@ -379,6 +539,8 @@ export function GameProvider({ children }: { children: ReactNode }) {
       appointMinister,
       fireMinister,
       instructMinister,
+      appointShadowMinister,
+      removeShadowMinister,
       issuePressStatement,
       submitPolicy,
       startElectionCampaign,
