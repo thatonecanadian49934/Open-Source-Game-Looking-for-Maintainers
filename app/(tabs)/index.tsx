@@ -338,6 +338,34 @@ export default function DashboardScreen() {
                   <Text style={[styles.actionText, { color: Colors.error }]}>Scandal Alert</Text>
                 </Pressable>
               ) : null}
+              {gameState.isGoverning ? (
+                <Pressable onPress={() => router.push('/throne-speech')} style={({ pressed }) => [styles.actionBtn, pressed && { opacity: 0.8 }]}>
+                  <MaterialCommunityIcons name="crown" size={22} color={Colors.gold} />
+                  <Text style={styles.actionText}>Throne Speech</Text>
+                </Pressable>
+              ) : null}
+              {gameState.isGoverning ? (
+                <Pressable onPress={() => router.push('/federal-budget')} style={({ pressed }) => [styles.actionBtn, pressed && { opacity: 0.8 }]}>
+                  <MaterialCommunityIcons name="cash-multiple" size={22} color={Colors.success} />
+                  <Text style={styles.actionText}>Federal Budget</Text>
+                </Pressable>
+              ) : null}
+              {gameState.isGoverning ? (
+                <Pressable onPress={() => router.push('/senate-appointments')} style={({ pressed }) => [styles.actionBtn, pressed && { opacity: 0.8 }]}>
+                  <MaterialCommunityIcons name="account-star" size={22} color={Colors.gold} />
+                  <Text style={styles.actionText}>Senate Appts.</Text>
+                </Pressable>
+              ) : null}
+              {gameState.isGoverning ? (
+                <Pressable onPress={() => router.push('/order-in-council')} style={({ pressed }) => [styles.actionBtn, pressed && { opacity: 0.8 }]}>
+                  <MaterialCommunityIcons name="seal" size={22} color={Colors.gold} />
+                  <Text style={styles.actionText}>Orders in Council</Text>
+                </Pressable>
+              ) : null}
+              <Pressable onPress={() => router.push('/accountability')} style={({ pressed }) => [styles.actionBtn, pressed && { opacity: 0.8 }]}>
+                <MaterialCommunityIcons name="scale-balance" size={22} color={Colors.warning} />
+                <Text style={styles.actionText}>Accountability</Text>
+              </Pressable>
               {!gameState.isGoverning && gameState.confidenceVoteAvailable ? (
                 <Pressable onPress={handleConfidenceVote} style={({ pressed }) => [styles.actionBtn, styles.actionBtnDanger, pressed && { opacity: 0.8 }]}>
                   <MaterialCommunityIcons name="vote" size={22} color={Colors.error} />

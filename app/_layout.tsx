@@ -38,6 +38,11 @@ export default function RootLayout() {
             <Stack.Screen name="cabinet-scandal" options={{ presentation: 'modal' }} />
             <Stack.Screen name="supreme-court" options={{ presentation: 'modal' }} />
             <Stack.Screen name="emergencies-act" options={{ animation: 'slide_from_bottom' }} />
+            <Stack.Screen name="throne-speech" options={{ animation: 'slide_from_right' }} />
+            <Stack.Screen name="federal-budget" options={{ animation: 'slide_from_right' }} />
+            <Stack.Screen name="senate-appointments" options={{ presentation: 'modal' }} />
+            <Stack.Screen name="order-in-council" options={{ presentation: 'modal' }} />
+            <Stack.Screen name="accountability" options={{ presentation: 'modal' }} />
           </Stack>
         </GameProvider>
       </SafeAreaProvider>

@@ -86,6 +86,12 @@ export interface GameState {
   // Parliament schedule
   parliamentInSession: boolean;
   nextSessionWeek: number;
+  // Additional parliamentary fields
+  thronesSpeechDelivered?: boolean;
+  budgetTabled?: boolean;
+  prorogued?: boolean;
+  confidenceVoteAvailable: boolean;
+  isMajority?: boolean;
 }
 
 export interface GameEvent {
