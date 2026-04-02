@@ -1,25 +1,23 @@
 // Powered by OnSpace.AI
 import React, { createContext, useState, ReactNode, useCallback } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { 
-  GameState, 
-  initializeGame, 
-  processWeek, 
+import {
+  GameState,
+  initializeGame,
+  processWeek,
   generateWeeklyEvents,
   GameEvent,
   NewsArticle,
   CabinetMember,
 } from '@/services/gameEngine';
 import { Bill, initializeBills, advanceBills, createPlayerBill } from '@/services/billService';
-import { 
-  CampaignState, 
+import {
+  CampaignState,
   ElectionNightResult,
-  initializeCampaign, 
+  initializeCampaign,
   simulateElectionResults,
   campaignInProvince,
-  generatePolicyNews,
 } from '@/services/electionService';
-import { generatePressStatementReaction, generatePolicyNews as policyNewsService } from '@/services/newsService';
+import { generatePressStatementReaction, generatePolicyNews } from '@/services/newsService';
 import { PARTIES } from '@/constants/parties';
 import { TOTAL_SEATS, MAJORITY_SEATS } from '@/constants/provinces';
 
@@ -28,40 +26,40 @@ export interface GameContextType {
   bills: Bill[];
   campaignState: CampaignState | null;
   electionResult: ElectionNightResult | null;
-  
+
   // Setup
   startGame: (partyId: string, playerName: string) => void;
-  
+
   // Weekly actions
   advanceWeek: (eventChoices: Record<string, string>) => void;
-  
+
   // Parliament
   voteOnBill: (billId: string, vote: 'yea' | 'nay' | 'abstain') => void;
   accelerateBill: (billId: string) => void;
   createBill: (title: string, description: string, topic: string, fiscalImpact: string) => void;
   callConfidenceVote: () => { passed: boolean; message: string };
   dissolveParliament: () => void;
-  
+
   // Cabinet
   appointMinister: (portfolio: string, name: string) => void;
   fireMinister: (portfolio: string) => void;
   instructMinister: (portfolio: string, instruction: string) => void;
-  
+
   // Communication
   issuePressStatement: (statement: string) => void;
   submitPolicy: (policyText: string) => void;
-  
+
   // Election
   startElectionCampaign: () => void;
   campaignInRegion: (provinceCode: string) => void;
-  completeCampaign: () => void;
-  
+  completeCampaign: (preComputedResult: ElectionNightResult) => void;
+
   // Question Period
   answerQuestion: (question: string, answer: string, performance: 'excellent' | 'good' | 'poor') => void;
-  
+
   // Leadership Review
   resolveLeadershipReview: (survive: boolean) => void;
-  
+
   // Confidence Vote
   callGoverningConfidenceVote: () => void;
 }
@@ -87,15 +85,14 @@ export function GameProvider({ children }: { children: ReactNode }) {
     setGameState(prev => {
       if (!prev) return prev;
       const newState = processWeek(prev, eventChoices);
-      
-      // Advance bills
+
       setBills(prevBills => advanceBills(
-        prevBills, 
-        newState.currentWeek, 
+        prevBills,
+        newState.currentWeek,
         newState.seats[newState.playerPartyId] || 0,
         TOTAL_SEATS
       ));
-      
+
       return newState;
     });
   }, []);
@@ -119,22 +116,21 @@ export function GameProvider({ children }: { children: ReactNode }) {
 
   const callConfidenceVote = useCallback((): { passed: boolean; message: string } => {
     let result = { passed: false, message: '' };
-    
+
     setGameState(prev => {
       if (!prev) return prev;
-      
-      // Simulate confidence vote
+
       const govSeats = Math.max(...Object.values(prev.seats));
       const rand = Math.random();
-      const passed = govSeats < MAJORITY_SEATS && rand > 0.6; // More likely to succeed if minority gov
-      
+      const passed = govSeats < MAJORITY_SEATS && rand > 0.6;
+
       result = {
         passed,
-        message: passed 
+        message: passed
           ? 'The government has lost the confidence of the House. Parliament is dissolved. An election has been called.'
           : 'The government survived the confidence vote. Parliament continues.',
       };
-      
+
       if (passed) {
         return {
           ...prev,
@@ -145,10 +141,10 @@ export function GameProvider({ children }: { children: ReactNode }) {
           confidenceVoteCooldown: 12,
         };
       }
-      
+
       return { ...prev, confidenceVoteCooldown: 12 };
     });
-    
+
     return result;
   }, []);
 
@@ -175,13 +171,13 @@ export function GameProvider({ children }: { children: ReactNode }) {
         loyalty: 70 + Math.floor(Math.random() * 20),
         competence: 60 + Math.floor(Math.random() * 30),
       };
-      
+
       if (existingIdx >= 0) {
         const newCabinet = [...prev.cabinet];
         newCabinet[existingIdx] = newMember;
         return { ...prev, cabinet: newCabinet };
       }
-      
+
       return { ...prev, cabinet: [...prev.cabinet, newMember] };
     });
   }, []);
@@ -198,14 +194,8 @@ export function GameProvider({ children }: { children: ReactNode }) {
       if (!prev) return prev;
       const minister = prev.cabinet.find(m => m.portfolio === portfolio);
       if (!minister) return prev;
-      
-      // Instruction has effect on stats
+
       const loyaltyBonus = minister.loyalty > 70 ? 2 : -1;
-      const newStats = {
-        ...prev.stats,
-        governmentApproval: Math.min(95, (prev.stats.governmentApproval || 0) + loyaltyBonus),
-      };
-      
       const newsArticle: NewsArticle = {
         id: `minister_${Date.now()}`,
         week: prev.currentWeek,
@@ -215,10 +205,13 @@ export function GameProvider({ children }: { children: ReactNode }) {
         sentiment: 'neutral',
         topic: 'Cabinet',
       };
-      
+
       return {
         ...prev,
-        stats: newStats,
+        stats: {
+          ...prev.stats,
+          governmentApproval: Math.min(95, (prev.stats.governmentApproval || 0) + loyaltyBonus),
+        },
         newsHistory: [newsArticle, ...prev.newsHistory].slice(0, 50),
       };
     });
@@ -229,7 +222,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
       if (!prev) return prev;
       const articles = generatePressStatementReaction(statement, prev.playerPartyId, prev.playerName, prev.currentWeek);
       const approvalChange = statement.length > 100 ? 2 : 1;
-      
+
       return {
         ...prev,
         stats: {
@@ -245,8 +238,8 @@ export function GameProvider({ children }: { children: ReactNode }) {
   const submitPolicy = useCallback((policyText: string) => {
     setGameState(prev => {
       if (!prev) return prev;
-      const articles = policyNewsService(policyText, prev.playerPartyId, prev.playerName, prev.currentWeek);
-      
+      const articles = generatePolicyNews(policyText, prev.playerPartyId, prev.playerName, prev.currentWeek);
+
       return {
         ...prev,
         stats: {
@@ -275,65 +268,68 @@ export function GameProvider({ children }: { children: ReactNode }) {
     });
   }, [gameState]);
 
-  const completeCampaign = useCallback(() => {
+  // Now accepts a pre-computed result (computed locally in election screen to avoid async race)
+  const completeCampaign = useCallback((preComputedResult: ElectionNightResult) => {
+    setElectionResult(preComputedResult);
+
     setGameState(prev => {
-      if (!prev || !campaignState) return prev;
-      
-      const result = simulateElectionResults(
-        prev.playerPartyId,
-        prev.stats,
-        campaignState,
-        prev.seats
-      );
-      
-      setElectionResult(result);
-      
-      const playerWon = result.playerSeats >= MAJORITY_SEATS || 
-        result.playerSeats === Math.max(...Object.values(result.totalSeats));
-      
+      if (!prev) return prev;
+
+      const { totalSeats, playerSeats, playerVotePct } = preComputedResult;
+
+      const maxSeats = Math.max(...Object.values(totalSeats));
+      const playerWon = playerSeats >= MAJORITY_SEATS || playerSeats === maxSeats;
+
+      // Rebuild provincial seats from province results
+      const newProvincialSeats: Record<string, Record<string, number>> = {};
+      preComputedResult.provinceResults.forEach(r => {
+        newProvincialSeats[r.provinceCode] = r.seats;
+      });
+
       const newState: GameState = {
         ...prev,
-        seats: result.totalSeats,
+        seats: totalSeats,
+        provincialSeats: newProvincialSeats,
         isGoverning: playerWon,
-        isMajority: result.playerSeats >= MAJORITY_SEATS,
+        isMajority: playerSeats >= MAJORITY_SEATS,
         isOpposition: !playerWon,
         inElection: false,
         electionWeek: 0,
         electionTriggered: false,
         currentWeek: 1,
         parliamentNumber: prev.parliamentNumber + 1,
-        inLeadershipReview: !playerWon && result.playerVotePct < 25,
+        inLeadershipReview: !playerWon && playerVotePct < 25,
         electionHistory: [
           ...prev.electionHistory,
           {
             parliament: prev.parliamentNumber,
             week: prev.currentWeek,
-            seats: result.totalSeats,
-            playerSeats: result.playerSeats,
+            seats: totalSeats,
+            playerSeats,
             won: playerWon,
-            votePct: result.playerVotePct,
+            votePct: playerVotePct,
           },
         ],
       };
-      
-      // Reset bills for new parliament
+
       setBills(initializeBills(1));
-      
+      setCampaignState(null);
+
       return newState;
     });
-  }, [campaignState]);
+  }, []);
 
   const answerQuestion = useCallback((question: string, answer: string, performance: 'excellent' | 'good' | 'poor') => {
     setGameState(prev => {
       if (!prev) return prev;
       const effect = performance === 'excellent' ? 5 : performance === 'good' ? 2 : -4;
-      
+
       return {
         ...prev,
         stats: {
           ...prev.stats,
           approvalRating: Math.min(95, Math.max(5, prev.stats.approvalRating + effect)),
-          partyStanding: Math.min(95, Math.max(5, prev.stats.partyStanding + (effect * 0.5))),
+          partyStanding: Math.min(95, Math.max(5, prev.stats.partyStanding + Math.round(effect * 0.5))),
         },
       };
     });

@@ -142,21 +142,24 @@ export function ElectoralMap({ seats, provincialSeats, playerPartyId, highlightP
         ))}
       </View>
       
-      {/* Seat bar */}
-      <View style={styles.seatBar}>
-        {PARTIES.filter(p => seats[p.id] > 0).map(party => {
-          const pct = ((seats[party.id] || 0) / 343) * 100;
-          return (
-            <View
-              key={party.id}
-              style={[styles.seatBarSegment, { width: `${pct}%` as any, backgroundColor: party.color }]}
-            />
-          );
-        })}
+      {/* Seat bar with majority marker */}
+      <View style={styles.seatBarWrapper}>
+        <View style={styles.seatBar}>
+          {PARTIES.filter(p => (seats[p.id] || 0) > 0).map(party => {
+            const pct = ((seats[party.id] || 0) / 343) * 100;
+            return (
+              <View
+                key={party.id}
+                style={[styles.seatBarSegment, { width: `${pct}%` as any, backgroundColor: party.color }]}
+              />
+            );
+          })}
+        </View>
+        {/* Majority line at exactly 172/343 = 50.15% */}
+        <View style={[styles.majorityMarker, { left: '50.1%' }]} />
       </View>
       <View style={styles.majorityLine}>
-        <View style={styles.majorityMarker} />
-        <Text style={styles.majorityLabel}>172 Majority</Text>
+        <Text style={styles.majorityLabel}>▲ 172 seats = majority</Text>
       </View>
     </View>
   );
@@ -227,29 +230,34 @@ const styles = StyleSheet.create({
     fontSize: FontSize.xs,
     fontWeight: FontWeight.bold,
   },
+  seatBarWrapper: {
+    position: 'relative',
+  },
   seatBar: {
     flexDirection: 'row',
-    height: 8,
-    borderRadius: 4,
+    height: 10,
+    borderRadius: 5,
     overflow: 'hidden',
     backgroundColor: Colors.surfaceBorder,
   },
   seatBarSegment: {
     height: '100%',
   },
+  majorityMarker: {
+    position: 'absolute',
+    top: -2,
+    width: 2,
+    height: 14,
+    backgroundColor: Colors.gold,
+  },
   majorityLine: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-  },
-  majorityMarker: {
-    width: 2,
-    height: 12,
-    backgroundColor: Colors.gold,
-    marginLeft: '50%',
+    paddingTop: 4,
   },
   majorityLabel: {
     fontSize: FontSize.xs,
     color: Colors.gold,
+    fontWeight: '600' as const,
   },
 });
