@@ -259,7 +259,8 @@ export default function LeadershipReviewScreen() {
   const handleContinue = () => {
     if (!survived) {
       resolveLeadershipReview(false);
-      router.replace('/leadership-convention');
+      // Route to full leadership race — player can run again as a candidate
+      router.replace('/leadership-race');
     } else {
       resolveLeadershipReview(true);
       router.replace('/(tabs)');

@@ -320,6 +320,12 @@ export default function DashboardScreen() {
                 <MaterialCommunityIcons name="home-import-outline" size={22} color={Colors.textSecondary} />
                 <Text style={styles.actionText}>Main Menu</Text>
               </Pressable>
+              {gameState.isGoverning ? (
+                <Pressable onPress={() => router.push('/emergencies-act')} style={({ pressed }) => [styles.actionBtn, styles.actionBtnDanger, pressed && { opacity: 0.8 }]}>
+                  <MaterialCommunityIcons name="alert-octagram" size={22} color={Colors.error} />
+                  <Text style={[styles.actionText, { color: Colors.error }]}>Emergencies Act</Text>
+                </Pressable>
+              ) : null}
               <Pressable onPress={() => router.push('/supreme-court')} style={({ pressed }) => [styles.actionBtn, pressed && { opacity: 0.8 }]}>
                 <MaterialCommunityIcons name="gavel" size={22} color={Colors.gold} />
                 <Text style={styles.actionText}>Courts</Text>
