@@ -276,6 +276,22 @@ export default function DashboardScreen() {
                 <MaterialCommunityIcons name="gavel" size={22} color={Colors.warning} />
                 <Text style={styles.actionText}>Draft Bill</Text>
               </Pressable>
+              <Pressable
+                onPress={() => router.push('/parliamentary-schedule')}
+                style={({ pressed }) => [styles.actionBtn, pressed && { opacity: 0.8 }]}
+              >
+                <MaterialCommunityIcons name="calendar-month" size={22} color={Colors.info} />
+                <Text style={styles.actionText}>Parl. Schedule</Text>
+              </Pressable>
+              {gameState.isGoverning ? (
+                <Pressable
+                  onPress={() => router.push('/foreign-policy')}
+                  style={({ pressed }) => [styles.actionBtn, pressed && { opacity: 0.8 }]}
+                >
+                  <MaterialCommunityIcons name="earth" size={22} color={Colors.success} />
+                  <Text style={styles.actionText}>Foreign Policy</Text>
+                </Pressable>
+              ) : null}
               {gameState.isOpposition && !gameState.isMajority && gameState.confidenceVoteAvailable ? (
                 <Pressable
                   onPress={handleConfidenceVote}
