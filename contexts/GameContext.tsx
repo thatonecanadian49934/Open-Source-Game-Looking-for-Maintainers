@@ -34,6 +34,15 @@ import { TOTAL_SEATS, MAJORITY_SEATS } from '@/constants/provinces';
 import { getSupabaseClient } from '@/template';
 import { FunctionsHttpError } from '@supabase/supabase-js';
 
+// ── By-Election ────────────────────────────────────────────────────────────────
+export interface ByElectionTrigger {
+  partyId: string;
+  provinceCode: string;
+  reason: 'resignation' | 'death' | 'expulsion';
+  week: number;
+  ridingName?: string;
+}
+
 // ── Shadow Cabinet ─────────────────────────────────────────────────────────────
 export interface ShadowCabinetMember {
   portfolio: string;
@@ -49,6 +58,7 @@ export interface GameContextType {
   campaignState: CampaignState | null;
   electionResult: ElectionNightResult | null;
   shadowCabinet: ShadowCabinetMember[];
+  byElectionTrigger: ByElectionTrigger | null;
 
   // Setup
   startGame: (partyId: string, playerName: string) => void;
@@ -92,6 +102,10 @@ export interface GameContextType {
   // Confidence trigger
   callGoverningConfidenceVote: () => void;
 
+  // By-Election
+  completeByElection?: (provinceCode: string, ridingName: string, won: boolean, playerPartyId: string, vacatingPartyId: string, candidateName: string) => void;
+  dismissByElection?: () => void;
+
   // Foreign Policy (PM only)
   executeForeignPolicy?: (action: string, country: string, approvalChange: number, gdpChange: number) => void;
 
@@ -109,6 +123,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
   const [campaignState, setCampaignState] = useState<CampaignState | null>(null);
   const [electionResult, setElectionResult] = useState<ElectionNightResult | null>(null);
   const [shadowCabinet, setShadowCabinet] = useState<ShadowCabinetMember[]>([]);
+  const [byElectionTrigger, setByElectionTrigger] = useState<ByElectionTrigger | null>(null);
 
   const supabase = getSupabaseClient();
 
@@ -121,6 +136,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
     setCampaignState(null);
     setElectionResult(null);
     setShadowCabinet([]);
+    setByElectionTrigger(null);
   }, []);
 
   // ── Generate AI Weekly Events ───────────────────────────────────────────────
@@ -199,6 +215,20 @@ export function GameProvider({ children }: { children: ReactNode }) {
       });
 
       const newState = processWeek(prev, eventChoices);
+
+      // Randomly trigger by-election (~5% chance per week, not during elections)
+      if (!prev.inElection && Math.random() < 0.05 && !byElectionTrigger) {
+        const provinceCodes = ['ON', 'QC', 'BC', 'AB', 'MB', 'SK', 'NS', 'NB', 'NL', 'PE'];
+        const reasons: Array<'resignation' | 'death' | 'expulsion'> = ['resignation', 'death', 'expulsion'];
+        const partyIds = Object.keys(newState.seats).filter(id => newState.seats[id] > 0);
+        const trigger: ByElectionTrigger = {
+          partyId: partyIds[Math.floor(Math.random() * partyIds.length)],
+          provinceCode: provinceCodes[Math.floor(Math.random() * provinceCodes.length)],
+          reason: reasons[Math.floor(Math.random() * 2)], // weight towards resignation
+          week: newState.currentWeek,
+        };
+        setByElectionTrigger(trigger);
+      }
 
       // Advance bills
       setBills(prevBills =>
@@ -431,6 +461,38 @@ export function GameProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  // ── By-Election ────────────────────────────────────────────────────────────────
+  const completeByElection = useCallback((provinceCode: string, ridingName: string, won: boolean, playerPartyId: string, vacatingPartyId: string, candidateName: string) => {
+    setByElectionTrigger(null);
+    setGameState(prev => {
+      if (!prev) return prev;
+      const seatChange = won ? 1 : 0;
+      const lostSeat = won && vacatingPartyId !== playerPartyId ? 1 : 0;
+      const newSeats = { ...prev.seats };
+      if (won && vacatingPartyId !== playerPartyId) {
+        newSeats[playerPartyId] = (newSeats[playerPartyId] || 0) + 1;
+        newSeats[vacatingPartyId] = Math.max(0, (newSeats[vacatingPartyId] || 0) - 1);
+      } else if (!won && vacatingPartyId === playerPartyId) {
+        // Defending and lost — someone else gains
+        newSeats[playerPartyId] = Math.max(0, (newSeats[playerPartyId] || 0) - 1);
+      }
+      const approvalChange = won ? 2 : -2;
+      return {
+        ...prev,
+        seats: newSeats,
+        stats: {
+          ...prev.stats,
+          approvalRating: Math.max(5, Math.min(95, prev.stats.approvalRating + approvalChange)),
+          partyStanding: Math.max(5, Math.min(95, prev.stats.partyStanding + (won ? 3 : -2))),
+        },
+      };
+    });
+  }, []);
+
+  const dismissByElection = useCallback(() => {
+    setByElectionTrigger(null);
+  }, []);
+
   // ── Election ────────────────────────────────────────────────────────────────
   const startElectionCampaign = useCallback(() => {
     setGameState(prev => {
@@ -522,6 +584,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
       campaignState,
       electionResult,
       shadowCabinet,
+      byElectionTrigger,
       startGame,
       advanceWeek,
       voteOnBill,
@@ -542,6 +605,8 @@ export function GameProvider({ children }: { children: ReactNode }) {
       answerQuestion,
       resolveLeadershipReview,
       callGoverningConfidenceVote,
+      completeByElection,
+      dismissByElection,
       executeForeignPolicy,
       scheduleSession,
       callEmergencySession,

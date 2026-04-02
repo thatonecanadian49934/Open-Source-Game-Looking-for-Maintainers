@@ -19,7 +19,7 @@ export default function DashboardScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { showAlert } = useAlert();
-  const { gameState, advanceWeek, callConfidenceVote, dissolveParliament } = useGame();
+  const { gameState, advanceWeek, callConfidenceVote, dissolveParliament, byElectionTrigger, dismissByElection } = useGame();
   const [eventChoices, setEventChoices] = useState<Record<string, string>>({});
   const [isAdvancing, setIsAdvancing] = useState(false);
 
@@ -221,6 +221,35 @@ export default function DashboardScreen() {
             </View>
           )}
         </View>
+
+        {/* By-Election Alert Banner */}
+        {byElectionTrigger ? (
+          <View style={styles.byElectionBanner}>
+            <View style={styles.byElectionBannerLeft}>
+              <MaterialCommunityIcons name="alert-circle" size={18} color={Colors.warning} />
+              <View>
+                <Text style={styles.byElectionTitle}>By-Election Triggered</Text>
+                <Text style={styles.byElectionSub}>
+                  A seat is vacant in {byElectionTrigger.provinceCode} — {byElectionTrigger.reason}.
+                </Text>
+              </View>
+            </View>
+            <View style={styles.byElectionActions}>
+              <Pressable
+                onPress={() => router.push('/by-election')}
+                style={({ pressed }) => [styles.byElectionBtn, { backgroundColor: Colors.warning }, pressed && { opacity: 0.85 }]}
+              >
+                <Text style={styles.byElectionBtnText}>Campaign</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => dismissByElection?.()}
+                style={({ pressed }) => [styles.byElectionDismiss, pressed && { opacity: 0.7 }]}
+              >
+                <MaterialCommunityIcons name="close" size={14} color={Colors.textMuted} />
+              </Pressable>
+            </View>
+          </View>
+        ) : null}
 
         {/* Election Countdown */}
         <View style={styles.electionCountdown}>
@@ -460,6 +489,54 @@ const styles = StyleSheet.create({
   statsGrid: {
     flexDirection: 'row',
     gap: Spacing.sm,
+  },
+  byElectionBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: Colors.warning + '11',
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: Colors.warning + '44',
+    padding: Spacing.md,
+    gap: Spacing.sm,
+  },
+  byElectionBannerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    flex: 1,
+  },
+  byElectionTitle: {
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.bold,
+    color: Colors.warning,
+  },
+  byElectionSub: {
+    fontSize: FontSize.xs,
+    color: Colors.textSecondary,
+    marginTop: 2,
+  },
+  byElectionActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  byElectionBtn: {
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 7,
+    borderRadius: Radius.sm,
+  },
+  byElectionBtnText: {
+    fontSize: FontSize.xs,
+    fontWeight: FontWeight.bold,
+    color: '#fff',
+  },
+  byElectionDismiss: {
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   electionCountdown: {
     flexDirection: 'row',
