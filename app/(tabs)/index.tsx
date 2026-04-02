@@ -1,7 +1,7 @@
-// Powered by OnSpace.AI
-import React, { useState, useCallback } from 'react';
+// Powered by OnSpace.AI — Dashboard with save game, fixed election navigation, fixed advance button
+import React, { useState, useCallback, useEffect } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, Pressable, Platform
+  View, Text, StyleSheet, ScrollView, Pressable
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -21,10 +21,17 @@ export default function DashboardScreen() {
   const { showAlert } = useAlert();
   const {
     gameState, bills, advanceWeek, callConfidenceVote, dissolveParliament,
-    byElectionTrigger, dismissByElection,
+    byElectionTrigger, dismissByElection, saveGame,
   } = useGame();
   const [eventChoices, setEventChoices] = useState<Record<string, string>>({});
   const [isAdvancing, setIsAdvancing] = useState(false);
+
+  // Auto-navigate to election when election is triggered via week advance
+  useEffect(() => {
+    if (gameState?.inElection && gameState?.electionTriggered) {
+      router.push('/election');
+    }
+  }, [gameState?.inElection, gameState?.electionTriggered]);
 
   if (!gameState) {
     return (
@@ -53,7 +60,6 @@ export default function DashboardScreen() {
     b.stage !== 'defeated' && b.stage !== 'royal_assent'
   );
   const unvotedBills = voteStageBills.filter(b => !b.playerVote);
-
   const canAdvance = pendingEvents.length === 0 && unvotedBills.length === 0;
 
   const handleAdvanceWeek = useCallback(() => {
@@ -68,11 +74,11 @@ export default function DashboardScreen() {
 
   const handleAdvanceAttempt = useCallback(() => {
     if (pendingEvents.length > 0) {
-      showAlert('Respond to Events First', `You must respond to ${pendingEvents.length} event(s) in "This Week in Parliament" before advancing.`);
+      showAlert('Respond to Events First', `You must respond to ${pendingEvents.length} event(s) before advancing.`);
       return;
     }
     if (unvotedBills.length > 0) {
-      showAlert('Vote Required', `${unvotedBills.length} bill(s) are at a voting stage in Parliament. Cast your vote before advancing the week.`);
+      showAlert('Vote Required', `${unvotedBills.length} bill(s) need your vote in the Parliament tab.`);
       return;
     }
     handleAdvanceWeek();
@@ -81,7 +87,7 @@ export default function DashboardScreen() {
   const handleConfidenceVote = useCallback(() => {
     showAlert(
       'Call Confidence Vote',
-      'This will force a vote on whether the government retains the confidence of the House. A failed vote triggers an election.',
+      'Force a vote on whether the government retains House confidence. If the government falls, an election is called immediately.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -89,8 +95,12 @@ export default function DashboardScreen() {
           style: 'destructive',
           onPress: () => {
             const result = callConfidenceVote();
-            showAlert(result.passed ? 'Government Falls!' : 'Government Survives', result.message);
-            if (result.passed) setTimeout(() => router.push('/election'), 1000);
+            if (result.passed) {
+              // Context sets inElection = true; navigate directly to election
+              router.push('/election');
+            } else {
+              showAlert('Government Survives', result.message);
+            }
           },
         },
       ]
@@ -100,22 +110,30 @@ export default function DashboardScreen() {
   const handleDissolveParliament = useCallback(() => {
     showAlert(
       'Dissolve Parliament',
-      'As Prime Minister, you may dissolve Parliament and call a snap election. Are you sure?',
+      'Call a snap election immediately. The 4-week campaign starts now.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Dissolve',
           style: 'destructive',
-          onPress: () => { dissolveParliament(); router.push('/election'); },
+          onPress: () => {
+            dissolveParliament();
+            // Context initializes campaign and sets inElection = true
+            router.push('/election');
+          },
         },
       ]
     );
   }, [dissolveParliament, showAlert, router]);
 
+  const handleSaveGame = useCallback(async () => {
+    await saveGame();
+    showAlert('Game Saved', 'Your progress has been saved. You can load it from the main menu.');
+  }, [saveGame, showAlert]);
+
   const electionsIn = 208 - gameState.currentWeek;
   const partyColor = party?.color || Colors.primary;
 
-  // Advance button label & blocking info
   const advanceBtnLabel = isAdvancing ? 'Processing...'
     : pendingEvents.length > 0 ? `Respond to ${pendingEvents.length} event(s) first`
     : unvotedBills.length > 0 ? `Vote on ${unvotedBills.length} bill(s) first`
@@ -139,10 +157,7 @@ export default function DashboardScreen() {
             <Text style={styles.timeWeek}>Week {gameState.currentWeek}</Text>
             <Text style={styles.timeYear}>{year}</Text>
           </View>
-          <View style={[
-            styles.govStatusBadge,
-            gameState.isGoverning ? { backgroundColor: Colors.success + '22' } : { backgroundColor: Colors.warning + '22' }
-          ]}>
+          <View style={[styles.govStatusBadge, gameState.isGoverning ? { backgroundColor: Colors.success + '22' } : { backgroundColor: Colors.warning + '22' }]}>
             <Text style={[styles.govStatusText, gameState.isGoverning ? { color: Colors.success } : { color: Colors.warning }]}>
               {gameState.isGoverning ? '⚡ PM' : '⚔ OPP'}
             </Text>
@@ -152,7 +167,7 @@ export default function DashboardScreen() {
 
       <ScrollView
         style={styles.scrollView}
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 160 }]}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 130 }]}
         showsVerticalScrollIndicator={false}
       >
         {/* Parliament Status */}
@@ -188,14 +203,24 @@ export default function DashboardScreen() {
           )}
         </View>
 
-        {/* By-Election Alert Banner */}
+        {/* Minority government warning */}
+        {gameState.isGoverning && !gameState.isMajority ? (
+          <View style={styles.minorityWarning}>
+            <MaterialCommunityIcons name="alert" size={14} color={Colors.warning} />
+            <Text style={styles.minorityWarningText}>
+              Minority government — keep approval high or opposition may trigger a confidence vote.
+            </Text>
+          </View>
+        ) : null}
+
+        {/* By-Election Alert */}
         {byElectionTrigger ? (
           <View style={styles.byElectionBanner}>
             <View style={styles.byElectionBannerLeft}>
               <MaterialCommunityIcons name="alert-circle" size={18} color={Colors.warning} />
               <View>
                 <Text style={styles.byElectionTitle}>By-Election Triggered</Text>
-                <Text style={styles.byElectionSub}>A seat is vacant in {byElectionTrigger.provinceCode} — {byElectionTrigger.reason}.</Text>
+                <Text style={styles.byElectionSub}>{byElectionTrigger.provinceCode} — {byElectionTrigger.reason}</Text>
               </View>
             </View>
             <View style={styles.byElectionActions}>
@@ -216,7 +241,7 @@ export default function DashboardScreen() {
             <View>
               <Text style={styles.electionCountdownTitle}>Next Election</Text>
               <Text style={styles.electionCountdownSub}>
-                {electionsIn > 0 ? `In ${electionsIn} weeks (${Math.ceil(electionsIn / 52)} years)` : 'ELECTION IMMINENT'}
+                {electionsIn > 0 ? `In ${electionsIn} weeks (${Math.ceil(electionsIn / 52)} yrs)` : 'ELECTION IMMINENT'}
               </Text>
             </View>
           </View>
@@ -227,18 +252,14 @@ export default function DashboardScreen() {
           ) : null}
         </View>
 
-        {/* Week completion gate indicator */}
+        {/* Week gate indicator */}
         {(pendingEvents.length > 0 || unvotedBills.length > 0) ? (
           <View style={styles.gateCard}>
             <MaterialCommunityIcons name="lock-clock" size={16} color={Colors.warning} />
             <View style={{ flex: 1 }}>
               <Text style={styles.gateTitle}>Complete before advancing:</Text>
-              {pendingEvents.length > 0 ? (
-                <Text style={styles.gateItem}>• Respond to {pendingEvents.length} event(s) below</Text>
-              ) : null}
-              {unvotedBills.length > 0 ? (
-                <Text style={styles.gateItem}>• Vote on {unvotedBills.length} bill(s) in Parliament tab</Text>
-              ) : null}
+              {pendingEvents.length > 0 ? <Text style={styles.gateItem}>• Respond to {pendingEvents.length} event(s) below</Text> : null}
+              {unvotedBills.length > 0 ? <Text style={styles.gateItem}>• Vote on {unvotedBills.length} bill(s) in Parliament tab</Text> : null}
             </View>
           </View>
         ) : (
@@ -279,6 +300,10 @@ export default function DashboardScreen() {
                   <Text style={styles.actionText}>Foreign Policy</Text>
                 </Pressable>
               ) : null}
+              <Pressable onPress={handleSaveGame} style={({ pressed }) => [styles.actionBtn, pressed && { opacity: 0.8 }]}>
+                <MaterialCommunityIcons name="content-save" size={22} color={Colors.success} />
+                <Text style={styles.actionText}>Save Game</Text>
+              </Pressable>
               {!gameState.isGoverning && gameState.confidenceVoteAvailable ? (
                 <Pressable onPress={handleConfidenceVote} style={({ pressed }) => [styles.actionBtn, styles.actionBtnDanger, pressed && { opacity: 0.8 }]}>
                   <MaterialCommunityIcons name="vote" size={22} color={Colors.error} />
@@ -291,10 +316,7 @@ export default function DashboardScreen() {
 
         {/* Bill voting reminder */}
         {unvotedBills.length > 0 ? (
-          <Pressable
-            onPress={() => router.push('/(tabs)/parliament')}
-            style={({ pressed }) => [styles.billVoteReminder, pressed && { opacity: 0.85 }]}
-          >
+          <Pressable onPress={() => router.push('/(tabs)/parliament')} style={({ pressed }) => [styles.billVoteReminder, pressed && { opacity: 0.85 }]}>
             <MaterialCommunityIcons name="gavel" size={16} color={Colors.warning} />
             <View style={{ flex: 1 }}>
               <Text style={styles.billVoteReminderTitle}>{unvotedBills.length} Bill{unvotedBills.length > 1 ? 's' : ''} Awaiting Your Vote</Text>
@@ -304,23 +326,20 @@ export default function DashboardScreen() {
           </Pressable>
         ) : null}
 
-        {/* Events — role-specific labels */}
+        {/* Events — role-specific */}
         {gameState.currentEvents.length > 0 ? (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>
               {gameState.isGoverning ? 'THIS WEEK IN PARLIAMENT — GOVERN' : 'THIS WEEK IN PARLIAMENT — OPPOSE'}
             </Text>
-            {gameState.isGoverning ? (
-              <View style={styles.eventRoleHint}>
-                <MaterialCommunityIcons name="shield-crown" size={12} color={Colors.liberal} />
-                <Text style={styles.eventRoleHintText}>As Prime Minister, your responses set government policy. Strong decisions build approval; weak responses embolden the opposition.</Text>
-              </View>
-            ) : (
-              <View style={[styles.eventRoleHint, { backgroundColor: Colors.conservative + '0D', borderColor: Colors.conservative + '22' }]}>
-                <MaterialCommunityIcons name="account-voice" size={12} color={partyColor} />
-                <Text style={styles.eventRoleHintText}>As Opposition Leader, your responses shape your critique of the government. Force the government to defend its record.</Text>
-              </View>
-            )}
+            <View style={[styles.eventRoleHint, gameState.isGoverning ? {} : { backgroundColor: partyColor + '0D', borderColor: partyColor + '22' }]}>
+              <MaterialCommunityIcons name={gameState.isGoverning ? 'shield-crown' : 'account-voice'} size={12} color={gameState.isGoverning ? Colors.liberal : partyColor} />
+              <Text style={styles.eventRoleHintText}>
+                {gameState.isGoverning
+                  ? 'As Prime Minister, your responses set government policy and affect approval.'
+                  : 'As Opposition Leader, your responses shape your critique and attack the government\'s record.'}
+              </Text>
+            </View>
             {gameState.currentEvents.map(event => (
               <EventCard
                 key={event.id}
@@ -347,15 +366,11 @@ export default function DashboardScreen() {
                     <Text style={styles.rivalParty}>{rivalParty?.name || rival.party}</Text>
                   </View>
                   <View style={styles.rivalStats}>
-                    <Text style={[styles.rivalApproval, { color: rival.approval > 40 ? Colors.success : Colors.warning }]}>
-                      {Math.round(rival.approval)}%
-                    </Text>
+                    <Text style={[styles.rivalApproval, { color: rival.approval > 40 ? Colors.success : Colors.warning }]}>{Math.round(rival.approval)}%</Text>
                     <Text style={styles.rivalApprovalLabel}>approval</Text>
                   </View>
                   <View style={styles.rivalSeats}>
-                    <Text style={[styles.rivalSeatCount, { color: rivalParty?.color || Colors.textMuted }]}>
-                      {gameState.seats[rival.partyId] || 0}
-                    </Text>
+                    <Text style={[styles.rivalSeatCount, { color: rivalParty?.color || Colors.textMuted }]}>{gameState.seats[rival.partyId] || 0}</Text>
                     <Text style={styles.rivalSeatsLabel}>seats</Text>
                   </View>
                 </View>
@@ -365,8 +380,8 @@ export default function DashboardScreen() {
         ) : null}
       </ScrollView>
 
-      {/* Advance Week Button — flush at very bottom, no border box */}
-      <View style={[styles.advanceContainer, { paddingBottom: insets.bottom + 70 }]}>
+      {/* Advance Week Button — no gap, flush against tab bar */}
+      <View style={[styles.advanceContainer, { paddingBottom: insets.bottom }]}>
         <Pressable
           onPress={handleAdvanceAttempt}
           style={({ pressed }) => [
@@ -377,14 +392,8 @@ export default function DashboardScreen() {
           ]}
           disabled={isAdvancing}
         >
-          <MaterialCommunityIcons
-            name={canAdvance ? 'skip-next' : 'lock'}
-            size={22}
-            color={canAdvance ? '#fff' : Colors.textMuted}
-          />
-          <Text style={[styles.advanceBtnText, !canAdvance && { color: Colors.textMuted }]}>
-            {advanceBtnLabel}
-          </Text>
+          <MaterialCommunityIcons name={canAdvance ? 'skip-next' : 'lock'} size={20} color={canAdvance ? '#fff' : Colors.textMuted} />
+          <Text style={[styles.advanceBtnText, !canAdvance && { color: Colors.textMuted }]}>{advanceBtnLabel}</Text>
         </Pressable>
       </View>
     </View>
@@ -393,11 +402,7 @@ export default function DashboardScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
-  header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm,
-    borderBottomWidth: 1, backgroundColor: Colors.surface,
-  },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, borderBottomWidth: 1, backgroundColor: Colors.surface },
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
   partyBadge: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: Radius.sm, borderWidth: 1 },
   partyBadgeText: { fontSize: FontSize.sm, fontWeight: FontWeight.bold, letterSpacing: 1 },
@@ -414,12 +419,9 @@ const styles = StyleSheet.create({
   section: { gap: Spacing.sm },
   sectionTitle: { fontSize: FontSize.xs, fontWeight: FontWeight.bold, color: Colors.textMuted, letterSpacing: 1.5, textTransform: 'uppercase' },
   statsGrid: { flexDirection: 'row', gap: Spacing.sm },
-
-  byElectionBanner: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    backgroundColor: Colors.warning + '11', borderRadius: Radius.md, borderWidth: 1,
-    borderColor: Colors.warning + '44', padding: Spacing.md, gap: Spacing.sm,
-  },
+  minorityWarning: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: Colors.warning + '11', borderRadius: Radius.sm, padding: Spacing.sm, borderWidth: 1, borderColor: Colors.warning + '33' },
+  minorityWarningText: { flex: 1, fontSize: FontSize.xs, color: Colors.warning, lineHeight: 17 },
+  byElectionBanner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: Colors.warning + '11', borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.warning + '44', padding: Spacing.md, gap: Spacing.sm },
   byElectionBannerLeft: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, flex: 1 },
   byElectionTitle: { fontSize: FontSize.sm, fontWeight: FontWeight.bold, color: Colors.warning },
   byElectionSub: { fontSize: FontSize.xs, color: Colors.textSecondary, marginTop: 2 },
@@ -427,81 +429,27 @@ const styles = StyleSheet.create({
   byElectionBtn: { paddingHorizontal: Spacing.md, paddingVertical: 7, borderRadius: Radius.sm },
   byElectionBtnText: { fontSize: FontSize.xs, fontWeight: FontWeight.bold, color: '#fff' },
   byElectionDismiss: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
-
-  electionCountdown: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    backgroundColor: Colors.gold + '11', borderRadius: Radius.md, borderWidth: 1,
-    borderColor: Colors.gold + '33', padding: Spacing.md,
-  },
+  electionCountdown: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: Colors.gold + '11', borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.gold + '33', padding: Spacing.md },
   electionCountdownLeft: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
   electionCountdownTitle: { fontSize: FontSize.sm, fontWeight: FontWeight.semibold, color: Colors.gold },
   electionCountdownSub: { fontSize: FontSize.xs, color: Colors.textSecondary },
   dissolveBtn: { paddingHorizontal: Spacing.md, paddingVertical: 8, borderRadius: Radius.sm, backgroundColor: Colors.error + '22', borderWidth: 1, borderColor: Colors.error + '44' },
   dissolveBtnText: { fontSize: FontSize.xs, fontWeight: FontWeight.bold, color: Colors.error },
-
-  gateCard: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 8,
-    backgroundColor: Colors.warning + '11',
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    borderColor: Colors.warning + '33',
-    padding: Spacing.sm,
-  },
+  gateCard: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: Colors.warning + '11', borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.warning + '33', padding: Spacing.sm },
   gateTitle: { fontSize: FontSize.xs, fontWeight: FontWeight.bold, color: Colors.warning, marginBottom: 3 },
   gateItem: { fontSize: FontSize.xs, color: Colors.textSecondary },
-  gateReadyCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: Colors.success + '0D',
-    borderRadius: Radius.sm,
-    borderWidth: 1,
-    borderColor: Colors.success + '22',
-    padding: Spacing.sm,
-  },
+  gateReadyCard: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: Colors.success + '0D', borderRadius: Radius.sm, borderWidth: 1, borderColor: Colors.success + '22', padding: Spacing.sm },
   gateReadyText: { fontSize: FontSize.xs, color: Colors.success, fontWeight: FontWeight.medium },
-
   actionsRow: { flexDirection: 'row', gap: Spacing.sm, paddingVertical: Spacing.xs },
-  actionBtn: {
-    alignItems: 'center', gap: 6, backgroundColor: Colors.card, borderRadius: Radius.md,
-    borderWidth: 1, borderColor: Colors.surfaceBorder,
-    paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, minWidth: 90,
-  },
+  actionBtn: { alignItems: 'center', gap: 6, backgroundColor: Colors.card, borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.surfaceBorder, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, minWidth: 90 },
   actionBtnDanger: { borderColor: Colors.error + '44', backgroundColor: Colors.error + '11' },
   actionText: { fontSize: 11, fontWeight: FontWeight.medium, color: Colors.textSecondary, textAlign: 'center' },
-
-  billVoteReminder: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-    backgroundColor: Colors.warning + '11',
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    borderColor: Colors.warning + '44',
-    padding: Spacing.md,
-  },
+  billVoteReminder: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, backgroundColor: Colors.warning + '11', borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.warning + '44', padding: Spacing.md },
   billVoteReminderTitle: { fontSize: FontSize.sm, fontWeight: FontWeight.bold, color: Colors.warning },
   billVoteReminderSub: { fontSize: FontSize.xs, color: Colors.textSecondary, marginTop: 2 },
-
-  eventRoleHint: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 6,
-    backgroundColor: Colors.liberal + '0D',
-    borderRadius: Radius.sm,
-    padding: Spacing.sm,
-    borderWidth: 1,
-    borderColor: Colors.liberal + '22',
-  },
+  eventRoleHint: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, backgroundColor: Colors.liberal + '0D', borderRadius: Radius.sm, padding: Spacing.sm, borderWidth: 1, borderColor: Colors.liberal + '22' },
   eventRoleHintText: { flex: 1, fontSize: FontSize.xs, color: Colors.textSecondary, lineHeight: 17 },
-
-  rivalCard: {
-    flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.card,
-    borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.surfaceBorder,
-    padding: Spacing.sm, gap: Spacing.sm,
-  },
+  rivalCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.card, borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.surfaceBorder, padding: Spacing.sm, gap: Spacing.sm },
   rivalColorDot: { width: 10, height: 10, borderRadius: 5 },
   rivalInfo: { flex: 1 },
   rivalName: { fontSize: FontSize.sm, fontWeight: FontWeight.semibold, color: Colors.textPrimary },
@@ -512,15 +460,14 @@ const styles = StyleSheet.create({
   rivalSeats: { alignItems: 'center', minWidth: 40 },
   rivalSeatCount: { fontSize: FontSize.base, fontWeight: FontWeight.bold },
   rivalSeatsLabel: { fontSize: 9, color: Colors.textMuted },
-
-  // Advance button — no box, sits at very bottom flush
+  // Advance button — no gap with tab bar
   advanceContainer: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
     paddingHorizontal: Spacing.md,
-    paddingTop: Spacing.sm,
+    paddingTop: 6,
     backgroundColor: Colors.background,
   },
   advanceBtn: {
@@ -528,12 +475,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: Spacing.sm,
-    paddingVertical: Spacing.md,
+    paddingVertical: Spacing.sm + 2,
     borderRadius: Radius.md,
+    marginBottom: 4,
   },
-  advanceBtnText: {
-    fontSize: FontSize.base,
-    fontWeight: FontWeight.bold,
-    color: '#fff',
-  },
+  advanceBtnText: { fontSize: FontSize.base, fontWeight: FontWeight.bold, color: '#fff' },
 });

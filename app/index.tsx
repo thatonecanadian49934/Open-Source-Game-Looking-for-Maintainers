@@ -12,13 +12,19 @@ export default function IndexScreen() {
   useEffect(() => {
     const timer = setTimeout(() => {
       if (gameState?.gameStarted) {
-        router.replace('/(tabs)');
+        if (gameState.inElection && gameState.electionTriggered) {
+          router.replace('/election');
+        } else if (gameState.inLeadershipReview) {
+          router.replace('/leadership-review');
+        } else {
+          router.replace('/(tabs)');
+        }
       } else {
         router.replace('/setup');
       }
     }, 100);
     return () => clearTimeout(timer);
-  }, [gameState]);
+  }, [gameState?.gameStarted]);
 
   return (
     <View style={styles.container}>
