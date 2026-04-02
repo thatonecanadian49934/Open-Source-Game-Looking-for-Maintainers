@@ -9,6 +9,7 @@ interface EventCardProps {
   event: GameEvent;
   onChoice: (eventId: string, choiceId: string) => void;
   selectedChoice?: string;
+  isGoverning?: boolean;
 }
 
 const TYPE_ICONS: Record<string, any> = {
@@ -29,7 +30,7 @@ const URGENCY_COLORS: Record<string, string> = {
   critical: '#FF0000',
 };
 
-export const EventCard = React.memo(function EventCard({ event, onChoice, selectedChoice }: EventCardProps) {
+export const EventCard = React.memo(function EventCard({ event, onChoice, selectedChoice, isGoverning }: EventCardProps) {
   const [expanded, setExpanded] = useState(true);
   const iconName = TYPE_ICONS[event.type] || 'information';
   const urgencyColor = URGENCY_COLORS[event.urgency] || Colors.info;
@@ -58,7 +59,9 @@ export const EventCard = React.memo(function EventCard({ event, onChoice, select
         <View style={styles.body}>
           <Text style={styles.description}>{event.description}</Text>
           
-          <Text style={styles.chooseLabel}>Choose your response:</Text>
+          <Text style={styles.chooseLabel}>
+            {isGoverning ? 'Government response:' : 'Opposition response:'}
+          </Text>
           
           {event.choices.map(choice => {
             const isSelected = selectedChoice === choice.id;

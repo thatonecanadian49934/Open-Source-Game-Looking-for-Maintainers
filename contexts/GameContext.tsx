@@ -106,6 +106,9 @@ export interface GameContextType {
   completeByElection?: (provinceCode: string, ridingName: string, won: boolean, playerPartyId: string, vacatingPartyId: string, candidateName: string) => void;
   dismissByElection?: () => void;
 
+  // Party Leader Deals
+  makePartyDeal?: (rivalPartyId: string, dealType: string, accepted: boolean) => void;
+
   // Foreign Policy (PM only)
   executeForeignPolicy?: (action: string, country: string, approvalChange: number, gdpChange: number) => void;
 
@@ -519,6 +522,8 @@ export function GameProvider({ children }: { children: ReactNode }) {
       const playerWon = playerSeats >= MAJORITY_SEATS || playerSeats === maxSeats;
       const newProvincialSeats: Record<string, Record<string, number>> = {};
       preComputedResult.provinceResults.forEach(r => { newProvincialSeats[r.provinceCode] = r.seats; });
+      // Auto-trigger leadership review if player lost election
+      const autoLeadershipReview = !playerWon;
       const newState: GameState = {
         ...prev,
         seats: totalSeats,
@@ -531,7 +536,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
         electionTriggered: false,
         currentWeek: 1,
         parliamentNumber: prev.parliamentNumber + 1,
-        inLeadershipReview: !playerWon && playerVotePct < 25,
+        inLeadershipReview: autoLeadershipReview,
         electionHistory: [...prev.electionHistory, { parliament: prev.parliamentNumber, week: prev.currentWeek, seats: totalSeats, playerSeats, won: playerWon, votePct: playerVotePct }],
         cabinet: playerWon ? prev.cabinet : [],
       };
@@ -566,6 +571,26 @@ export function GameProvider({ children }: { children: ReactNode }) {
         ...prev,
         inLeadershipReview: false,
         stats: { ...prev.stats, partyStanding: survive ? 60 : 30, approvalRating: survive ? prev.stats.approvalRating + 5 : prev.stats.approvalRating - 10 },
+      };
+    });
+  }, []);
+
+  // ── Party Leader Deals ───────────────────────────────────────────────────────
+  const makePartyDeal = useCallback((rivalPartyId: string, dealType: string, accepted: boolean) => {
+    setGameState(prev => {
+      if (!prev || !accepted) return prev;
+      // No-confidence deal: enable confidence vote immediately
+      if (dealType === 'no_confidence') {
+        return { ...prev, confidenceVoteAvailable: true, confidenceVoteCooldown: 0 };
+      }
+      // Bill support or coalition: minor approval boost
+      return {
+        ...prev,
+        stats: {
+          ...prev.stats,
+          partyStanding: Math.min(95, prev.stats.partyStanding + 3),
+          approvalRating: Math.min(95, prev.stats.approvalRating + 1),
+        },
       };
     });
   }, []);
@@ -611,6 +636,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
       scheduleSession,
       callEmergencySession,
       callOppositionDay,
+      makePartyDeal,
     }}>
       {children}
     </GameContext.Provider>
