@@ -268,8 +268,8 @@ export default function ParliamentScreen() {
           onPress={() => router.push('/create-bill')}
           style={({ pressed }) => [styles.createBillBtn, { backgroundColor: partyColor }, pressed && { opacity: 0.8 }]}
         >
-          <MaterialCommunityIcons name="plus" size={16} color="#fff" />
-          <Text style={styles.createBillText}>Draft Bill</Text>
+          <MaterialCommunityIcons name="plus" size={14} color="#fff" />
+          <Text style={styles.createBillText}>Bill</Text>
         </Pressable>
       </View>
 
@@ -569,13 +569,14 @@ const styles = StyleSheet.create({
   createBillBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: 8,
+    gap: 4,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 7,
     borderRadius: Radius.sm,
+    maxWidth: 80,
   },
   createBillText: {
-    fontSize: FontSize.sm,
+    fontSize: FontSize.xs,
     fontWeight: FontWeight.bold,
     color: '#fff',
   },

@@ -257,8 +257,13 @@ export default function LeadershipReviewScreen() {
   };
 
   const handleContinue = () => {
-    resolveLeadershipReview(survived);
-    router.replace('/(tabs)');
+    if (!survived) {
+      resolveLeadershipReview(false);
+      router.replace('/leadership-convention');
+    } else {
+      resolveLeadershipReview(true);
+      router.replace('/(tabs)');
+    }
   };
 
   const survivalChance = calculateSurvivalChance();

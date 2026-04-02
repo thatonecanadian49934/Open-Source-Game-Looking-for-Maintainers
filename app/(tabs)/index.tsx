@@ -304,6 +304,16 @@ export default function DashboardScreen() {
                 <MaterialCommunityIcons name="content-save" size={22} color={Colors.success} />
                 <Text style={styles.actionText}>Save Game</Text>
               </Pressable>
+              <Pressable onPress={() => router.push('/supreme-court')} style={({ pressed }) => [styles.actionBtn, pressed && { opacity: 0.8 }]}>
+                <MaterialCommunityIcons name="gavel" size={22} color={Colors.gold} />
+                <Text style={styles.actionText}>Courts</Text>
+              </Pressable>
+              {gameState.isGoverning && (gameState.cabinet?.length || 0) > 0 ? (
+                <Pressable onPress={() => router.push('/cabinet-scandal')} style={({ pressed }) => [styles.actionBtn, styles.actionBtnDanger, pressed && { opacity: 0.8 }]}>
+                  <MaterialCommunityIcons name="alert" size={22} color={Colors.error} />
+                  <Text style={[styles.actionText, { color: Colors.error }]}>Scandal Alert</Text>
+                </Pressable>
+              ) : null}
               {!gameState.isGoverning && gameState.confidenceVoteAvailable ? (
                 <Pressable onPress={handleConfidenceVote} style={({ pressed }) => [styles.actionBtn, styles.actionBtnDanger, pressed && { opacity: 0.8 }]}>
                   <MaterialCommunityIcons name="vote" size={22} color={Colors.error} />
