@@ -1,0 +1,37 @@
+// Powered by OnSpace.AI
+import { AlertProvider } from '@/template';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { Stack } from 'expo-router';
+import { GameProvider } from '@/contexts/GameContext';
+import { StatusBar } from 'expo-status-bar';
+
+export default function RootLayout() {
+  return (
+    <AlertProvider>
+      <SafeAreaProvider>
+        <GameProvider>
+          <StatusBar style="light" />
+          <Stack
+            screenOptions={{
+              headerShown: false,
+              contentStyle: { backgroundColor: '#0a0e1a' },
+              animation: 'fade',
+            }}
+          >
+            <Stack.Screen name="index" />
+            <Stack.Screen name="setup" />
+            <Stack.Screen name="(tabs)" />
+            <Stack.Screen name="election" options={{ animation: 'slide_from_right' }} />
+            <Stack.Screen name="debate" options={{ animation: 'slide_from_right' }} />
+            <Stack.Screen name="bill-detail" options={{ presentation: 'modal' }} />
+            <Stack.Screen name="question-period" options={{ presentation: 'modal' }} />
+            <Stack.Screen name="press-statement" options={{ presentation: 'modal' }} />
+            <Stack.Screen name="policy" options={{ presentation: 'modal' }} />
+            <Stack.Screen name="leadership-review" options={{ animation: 'slide_from_bottom' }} />
+            <Stack.Screen name="create-bill" options={{ presentation: 'modal' }} />
+          </Stack>
+        </GameProvider>
+      </SafeAreaProvider>
+    </AlertProvider>
+  );
+}

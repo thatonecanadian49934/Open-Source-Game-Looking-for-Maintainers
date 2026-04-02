@@ -1,0 +1,585 @@
+// Powered by OnSpace.AI
+import React, { useState, useCallback } from 'react';
+import {
+  View, Text, StyleSheet, ScrollView, Pressable, Alert, Platform
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import { useGame } from '@/hooks/useGame';
+import { useAlert } from '@/template';
+import { EventCard } from '@/components/ui/EventCard';
+import { StatCard } from '@/components/ui/StatCard';
+import { ParliamentBar } from '@/components/feature/ParliamentBar';
+import { PARTIES } from '@/constants/parties';
+import { Colors, Spacing, Radius, FontSize, FontWeight } from '@/constants/theme';
+import { MAJORITY_SEATS } from '@/constants/provinces';
+
+export default function DashboardScreen() {
+  const insets = useSafeAreaInsets();
+  const router = useRouter();
+  const { showAlert } = useAlert();
+  const { gameState, advanceWeek, callConfidenceVote, dissolveParliament } = useGame();
+  const [eventChoices, setEventChoices] = useState<Record<string, string>>({});
+  const [isAdvancing, setIsAdvancing] = useState(false);
+
+  if (!gameState) {
+    return (
+      <View style={[styles.container, { paddingTop: insets.top, alignItems: 'center', justifyContent: 'center' }]}>
+        <Text style={{ color: Colors.textSecondary }}>Loading game...</Text>
+      </View>
+    );
+  }
+
+  const party = PARTIES.find(p => p.id === gameState.playerPartyId);
+  const playerSeats = gameState.seats[gameState.playerPartyId] || 0;
+  const govStatus = playerSeats >= MAJORITY_SEATS ? 'Majority Government' : 
+    gameState.isGoverning ? 'Minority Government' : 'Official Opposition';
+  
+  const year = 2025 + Math.floor(gameState.totalWeeks / 52);
+  const weekOfYear = (gameState.totalWeeks % 52) + 1;
+
+  const handleEventChoice = useCallback((eventId: string, choiceId: string) => {
+    setEventChoices(prev => ({ ...prev, [eventId]: choiceId }));
+  }, []);
+
+  const handleAdvanceWeek = useCallback(() => {
+    if (isAdvancing) return;
+    
+    const unansweredCritical = gameState.currentEvents
+      .filter(e => e.urgency === 'critical' && !eventChoices[e.id]);
+    
+    if (unansweredCritical.length > 0) {
+      showAlert('Critical Event Pending', `You must respond to "${unansweredCritical[0].title}" before advancing.`);
+      return;
+    }
+    
+    setIsAdvancing(true);
+    setTimeout(() => {
+      advanceWeek(eventChoices);
+      setEventChoices({});
+      setIsAdvancing(false);
+    }, 300);
+  }, [isAdvancing, gameState.currentEvents, eventChoices, advanceWeek, showAlert]);
+
+  const handleConfidenceVote = useCallback(() => {
+    showAlert(
+      'Call Confidence Vote',
+      'This will force a vote on whether the government retains the confidence of the House. A failed vote triggers an election.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Call Vote',
+          style: 'destructive',
+          onPress: () => {
+            const result = callConfidenceVote();
+            showAlert(
+              result.passed ? 'Government Falls!' : 'Government Survives',
+              result.message
+            );
+            if (result.passed) {
+              setTimeout(() => router.push('/election'), 1000);
+            }
+          },
+        },
+      ]
+    );
+  }, [callConfidenceVote, showAlert, router]);
+
+  const handleDissolveParliament = useCallback(() => {
+    showAlert(
+      'Dissolve Parliament',
+      'As Prime Minister, you may dissolve Parliament and call a snap election. Are you sure?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Dissolve',
+          style: 'destructive',
+          onPress: () => {
+            dissolveParliament();
+            router.push('/election');
+          },
+        },
+      ]
+    );
+  }, [dissolveParliament, showAlert, router]);
+
+  const electionsIn = 208 - gameState.currentWeek;
+  const partyColor = party?.color || Colors.primary;
+
+  return (
+    <View style={[styles.container, { paddingTop: insets.top }]}>
+      {/* Header */}
+      <View style={[styles.header, { borderBottomColor: partyColor + '44' }]}>
+        <View style={styles.headerLeft}>
+          <View style={[styles.partyBadge, { backgroundColor: partyColor + '22', borderColor: partyColor + '44' }]}>
+            <Text style={[styles.partyBadgeText, { color: partyColor }]}>{party?.shortName}</Text>
+          </View>
+          <View>
+            <Text style={styles.playerName}>{gameState.playerName}</Text>
+            <Text style={styles.playerRole}>Party Leader</Text>
+          </View>
+        </View>
+        <View style={styles.headerRight}>
+          <View style={styles.timeDisplay}>
+            <Text style={styles.timeWeek}>Week {gameState.currentWeek}</Text>
+            <Text style={styles.timeYear}>{year}</Text>
+          </View>
+          <View style={[
+            styles.govStatusBadge,
+            gameState.isGoverning ? { backgroundColor: Colors.success + '22' } : { backgroundColor: Colors.warning + '22' }
+          ]}>
+            <Text style={[
+              styles.govStatusText,
+              gameState.isGoverning ? { color: Colors.success } : { color: Colors.warning }
+            ]}>
+              {gameState.isGoverning ? '⚡ PM' : '⚔ OPP'}
+            </Text>
+          </View>
+        </View>
+      </View>
+
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 100 }]}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Parliament Status */}
+        <View style={styles.section}>
+          <ParliamentBar seats={gameState.seats} playerPartyId={gameState.playerPartyId} />
+        </View>
+
+        {/* Key Stats */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>PARTY LEADERSHIP METRICS</Text>
+          <View style={styles.statsGrid}>
+            <StatCard
+              label="Approval"
+              value={`${Math.round(gameState.stats.approvalRating)}%`}
+              color={gameState.stats.approvalRating > 40 ? Colors.success : Colors.error}
+              trend={gameState.stats.approvalRating > 40 ? 'up' : 'down'}
+            />
+            <StatCard
+              label="Party Standing"
+              value={`${Math.round(gameState.stats.partyStanding)}%`}
+              color={Colors.gold}
+            />
+          </View>
+          <View style={styles.statsGrid}>
+            <StatCard
+              label="GDP Growth"
+              value={`${gameState.stats.gdpGrowth.toFixed(1)}%`}
+              color={gameState.stats.gdpGrowth > 0 ? Colors.success : Colors.error}
+              trend={gameState.stats.gdpGrowth > 0 ? 'up' : 'down'}
+            />
+            <StatCard
+              label="Inflation"
+              value={`${gameState.stats.inflationRate.toFixed(1)}%`}
+              color={gameState.stats.inflationRate > 3 ? Colors.error : Colors.success}
+            />
+          </View>
+          <View style={styles.statsGrid}>
+            <StatCard
+              label="Unemployment"
+              value={`${gameState.stats.unemploymentRate.toFixed(1)}%`}
+              color={gameState.stats.unemploymentRate > 7 ? Colors.error : Colors.success}
+            />
+            <StatCard
+              label="Nat'l Debt"
+              value={`$${Math.round(gameState.stats.nationalDebt)}B`}
+              color={Colors.textSecondary}
+            />
+          </View>
+          {gameState.isGoverning ? (
+            <View style={styles.statsGrid}>
+              <StatCard
+                label="Gov't Approval"
+                value={`${Math.round(gameState.stats.governmentApproval)}%`}
+                color={gameState.stats.governmentApproval > 40 ? Colors.success : Colors.error}
+              />
+              <StatCard
+                label="Your Seats"
+                value={playerSeats}
+                subtitle={govStatus}
+                color={partyColor}
+              />
+            </View>
+          ) : (
+            <View style={styles.statsGrid}>
+              <StatCard
+                label="Your Seats"
+                value={playerSeats}
+                subtitle={govStatus}
+                color={partyColor}
+              />
+              <StatCard
+                label="To Majority"
+                value={Math.max(0, MAJORITY_SEATS - playerSeats)}
+                subtitle="seats needed"
+                color={Colors.warning}
+              />
+            </View>
+          )}
+        </View>
+
+        {/* Election Countdown */}
+        <View style={styles.electionCountdown}>
+          <View style={styles.electionCountdownLeft}>
+            <MaterialCommunityIcons name="calendar-clock" size={20} color={Colors.gold} />
+            <View>
+              <Text style={styles.electionCountdownTitle}>Next Election</Text>
+              <Text style={styles.electionCountdownSub}>
+                {electionsIn > 0 ? `In ${electionsIn} weeks (${Math.ceil(electionsIn / 52)} years)` : 'ELECTION IMMINENT'}
+              </Text>
+            </View>
+          </View>
+          {gameState.isGoverning ? (
+            <Pressable
+              onPress={handleDissolveParliament}
+              style={({ pressed }) => [styles.dissolveBtn, pressed && { opacity: 0.7 }]}
+            >
+              <Text style={styles.dissolveBtnText}>Dissolve</Text>
+            </Pressable>
+          ) : null}
+        </View>
+
+        {/* Quick Actions */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>ACTIONS THIS WEEK</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            <View style={styles.actionsRow}>
+              <Pressable
+                onPress={() => router.push('/press-statement')}
+                style={({ pressed }) => [styles.actionBtn, pressed && { opacity: 0.8 }]}
+              >
+                <MaterialCommunityIcons name="microphone" size={22} color={Colors.gold} />
+                <Text style={styles.actionText}>Press Statement</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => router.push('/question-period')}
+                style={({ pressed }) => [styles.actionBtn, pressed && { opacity: 0.8 }]}
+              >
+                <MaterialCommunityIcons name="comment-question" size={22} color={Colors.info} />
+                <Text style={styles.actionText}>Question Period</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => router.push('/policy')}
+                style={({ pressed }) => [styles.actionBtn, pressed && { opacity: 0.8 }]}
+              >
+                <MaterialCommunityIcons name="file-document-edit" size={22} color={Colors.success} />
+                <Text style={styles.actionText}>Policy Platform</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => router.push('/create-bill')}
+                style={({ pressed }) => [styles.actionBtn, pressed && { opacity: 0.8 }]}
+              >
+                <MaterialCommunityIcons name="gavel" size={22} color={Colors.warning} />
+                <Text style={styles.actionText}>Draft Bill</Text>
+              </Pressable>
+              {gameState.isOpposition && !gameState.isMajority && gameState.confidenceVoteAvailable ? (
+                <Pressable
+                  onPress={handleConfidenceVote}
+                  style={({ pressed }) => [styles.actionBtn, styles.actionBtnDanger, pressed && { opacity: 0.8 }]}
+                >
+                  <MaterialCommunityIcons name="vote" size={22} color={Colors.error} />
+                  <Text style={[styles.actionText, { color: Colors.error }]}>Confidence Vote</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          </ScrollView>
+        </View>
+
+        {/* Events */}
+        {gameState.currentEvents.length > 0 ? (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>THIS WEEK IN PARLIAMENT</Text>
+            {gameState.currentEvents.map(event => (
+              <EventCard
+                key={event.id}
+                event={event}
+                onChoice={handleEventChoice}
+                selectedChoice={eventChoices[event.id]}
+              />
+            ))}
+          </View>
+        ) : null}
+
+        {/* Rivals */}
+        {gameState.rivals.length > 0 ? (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>RIVAL PARTY LEADERS</Text>
+            {gameState.rivals.slice(0, 3).map(rival => {
+              const rivalParty = PARTIES.find(p => p.id === rival.partyId);
+              return (
+                <View key={rival.partyId} style={styles.rivalCard}>
+                  <View style={[styles.rivalColorDot, { backgroundColor: rivalParty?.color || Colors.textMuted }]} />
+                  <View style={styles.rivalInfo}>
+                    <Text style={styles.rivalName}>{rival.name.split(' (')[0]}</Text>
+                    <Text style={styles.rivalParty}>{rivalParty?.name || rival.party}</Text>
+                  </View>
+                  <View style={styles.rivalStats}>
+                    <Text style={[styles.rivalApproval, { color: rival.approval > 40 ? Colors.success : Colors.warning }]}>
+                      {Math.round(rival.approval)}%
+                    </Text>
+                    <Text style={styles.rivalApprovalLabel}>approval</Text>
+                  </View>
+                  <View style={styles.rivalSeats}>
+                    <Text style={[styles.rivalSeatCount, { color: rivalParty?.color || Colors.textMuted }]}>
+                      {gameState.seats[rival.partyId] || 0}
+                    </Text>
+                    <Text style={styles.rivalSeatsLabel}>seats</Text>
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        ) : null}
+      </ScrollView>
+
+      {/* Advance Week Button */}
+      <View style={[styles.footer, { paddingBottom: insets.bottom + 70 }]}>
+        <Pressable
+          onPress={handleAdvanceWeek}
+          style={({ pressed }) => [
+            styles.advanceBtn,
+            { backgroundColor: partyColor },
+            isAdvancing && { opacity: 0.7 },
+            pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] },
+          ]}
+          disabled={isAdvancing}
+        >
+          <MaterialCommunityIcons name="skip-next" size={22} color="#fff" />
+          <Text style={styles.advanceBtnText}>
+            {isAdvancing ? 'Processing...' : `Advance to Week ${gameState.currentWeek + 1}`}
+          </Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: Colors.background,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderBottomWidth: 1,
+    backgroundColor: Colors.surface,
+  },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  partyBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: Radius.sm,
+    borderWidth: 1,
+  },
+  partyBadgeText: {
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.bold,
+    letterSpacing: 1,
+  },
+  playerName: {
+    fontSize: FontSize.base,
+    fontWeight: FontWeight.bold,
+    color: Colors.textPrimary,
+  },
+  playerRole: {
+    fontSize: FontSize.xs,
+    color: Colors.textSecondary,
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  timeDisplay: {
+    alignItems: 'flex-end',
+  },
+  timeWeek: {
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.bold,
+    color: Colors.textPrimary,
+  },
+  timeYear: {
+    fontSize: FontSize.xs,
+    color: Colors.textSecondary,
+  },
+  govStatusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: Radius.sm,
+  },
+  govStatusText: {
+    fontSize: FontSize.xs,
+    fontWeight: FontWeight.bold,
+    letterSpacing: 0.5,
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    padding: Spacing.md,
+    gap: Spacing.md,
+  },
+  section: {
+    gap: Spacing.sm,
+  },
+  sectionTitle: {
+    fontSize: FontSize.xs,
+    fontWeight: FontWeight.bold,
+    color: Colors.textMuted,
+    letterSpacing: 1.5,
+    textTransform: 'uppercase',
+  },
+  statsGrid: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+  },
+  electionCountdown: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: Colors.gold + '11',
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: Colors.gold + '33',
+    padding: Spacing.md,
+  },
+  electionCountdownLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  electionCountdownTitle: {
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.semibold,
+    color: Colors.gold,
+  },
+  electionCountdownSub: {
+    fontSize: FontSize.xs,
+    color: Colors.textSecondary,
+  },
+  dissolveBtn: {
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 8,
+    borderRadius: Radius.sm,
+    backgroundColor: Colors.error + '22',
+    borderWidth: 1,
+    borderColor: Colors.error + '44',
+  },
+  dissolveBtnText: {
+    fontSize: FontSize.xs,
+    fontWeight: FontWeight.bold,
+    color: Colors.error,
+  },
+  actionsRow: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+    paddingVertical: Spacing.xs,
+  },
+  actionBtn: {
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: Colors.card,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    minWidth: 90,
+  },
+  actionBtnDanger: {
+    borderColor: Colors.error + '44',
+    backgroundColor: Colors.error + '11',
+  },
+  actionText: {
+    fontSize: 11,
+    fontWeight: FontWeight.medium,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+  },
+  rivalCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.card,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+    padding: Spacing.sm,
+    gap: Spacing.sm,
+  },
+  rivalColorDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  rivalInfo: {
+    flex: 1,
+  },
+  rivalName: {
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.semibold,
+    color: Colors.textPrimary,
+  },
+  rivalParty: {
+    fontSize: FontSize.xs,
+    color: Colors.textSecondary,
+  },
+  rivalStats: {
+    alignItems: 'center',
+  },
+  rivalApproval: {
+    fontSize: FontSize.base,
+    fontWeight: FontWeight.bold,
+  },
+  rivalApprovalLabel: {
+    fontSize: 9,
+    color: Colors.textMuted,
+  },
+  rivalSeats: {
+    alignItems: 'center',
+    minWidth: 40,
+  },
+  rivalSeatCount: {
+    fontSize: FontSize.base,
+    fontWeight: FontWeight.bold,
+  },
+  rivalSeatsLabel: {
+    fontSize: 9,
+    color: Colors.textMuted,
+  },
+  footer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    paddingHorizontal: Spacing.md,
+    paddingTop: Spacing.sm,
+    backgroundColor: Colors.background,
+    borderTopWidth: 1,
+    borderTopColor: Colors.surfaceBorder,
+  },
+  advanceBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.sm,
+    paddingVertical: Spacing.md,
+    borderRadius: Radius.md,
+  },
+  advanceBtnText: {
+    fontSize: FontSize.base,
+    fontWeight: FontWeight.bold,
+    color: '#fff',
+  },
+});
