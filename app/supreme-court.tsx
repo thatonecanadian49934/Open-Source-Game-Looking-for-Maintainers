@@ -110,6 +110,31 @@ export default function SupremeCourtScreen() {
   const partyColor = party?.color || Colors.gold;
   const isGoverning = gameState.isGoverning;
 
+  // ── PM ONLY GATE ──
+  if (!isGoverning) {
+    return (
+      <View style={[styles.container, { paddingTop: insets.top }]}>
+        <View style={styles.header}>
+          <Pressable onPress={() => router.back()} style={styles.backBtn}>
+            <MaterialCommunityIcons name="close" size={22} color={Colors.textSecondary} />
+          </Pressable>
+          <View style={styles.headerCenter}>
+            <MaterialCommunityIcons name="gavel" size={18} color={Colors.gold} />
+            <Text style={styles.headerTitle}>Canadian Court System</Text>
+          </View>
+          <View style={{ width: 40 }} />
+        </View>
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: Spacing.xl, gap: Spacing.md }}>
+          <MaterialCommunityIcons name="lock" size={48} color={Colors.textMuted} />
+          <Text style={{ fontSize: FontSize.xl, fontWeight: FontWeight.bold, color: Colors.textSecondary, textAlign: 'center' }}>Prime Minister Only</Text>
+          <Text style={{ fontSize: FontSize.sm, color: Colors.textMuted, textAlign: 'center', lineHeight: 22 }}>
+            The court system interface is only accessible to the Prime Minister. Courts handle Charter challenges to government legislation.
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
   const generateCourtQuestions = async (courtCase: CourtCase): Promise<CourtQuestion[]> => {
     setLoadingQuestions(true);
     try {

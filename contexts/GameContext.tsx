@@ -36,6 +36,24 @@ import { getSupabaseClient } from '@/template';
 
 const SAVE_KEY = 'fantasy_parliament_save';
 
+// ── Active War ────────────────────────────────────────────────────────────────
+export interface ActiveWarState {
+  country: string;
+  flag: string;
+  weekDeclared: number;
+  weeksActive: number;
+  casualties: number;
+  landGained: number;
+  warProgress: 'losing' | 'stalemate' | 'winning' | 'dominant';
+  warPopularity: number;
+  riotActive: boolean;
+  phase: 'active' | 'negotiating' | 'peace_rejected';
+  peaceTermsRejected: boolean;
+  lastOperationWeek: number; // week when last troop op was executed
+  strategy: string | null;
+  peaceOptions: Array<{ id: string; label: string; description: string; territory?: string; selected: boolean }>;
+}
+
 // ── By-Election ────────────────────────────────────────────────────────────────
 export interface ByElectionTrigger {
   partyId: string;
@@ -132,6 +150,10 @@ export interface GameContextType {
 
   // Foreign Policy (PM only)
   executeForeignPolicy?: (action: string, country: string, approvalChange: number, gdpChange: number) => void;
+  activeWars: ActiveWarState[];
+  updateWar?: (country: string, update: Partial<ActiveWarState>) => void;
+  addWar?: (war: ActiveWarState) => void;
+  removeWar?: (country: string) => void;
 
   // Parliamentary Schedule
   scheduleSession?: (type: string) => void;
@@ -149,6 +171,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   const [shadowCabinet, setShadowCabinet] = useState<ShadowCabinetMember[]>([]);
   const [byElectionTrigger, setByElectionTrigger] = useState<ByElectionTrigger | null>(null);
   const [savedGames, setSavedGames] = useState<SavedGame[]>([]);
+  const [activeWars, setActiveWars] = useState<ActiveWarState[]>([]);
 
   const supabase = getSupabaseClient();
 
@@ -338,6 +361,21 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         return { ...newState, currentEvents: [confidenceEvent, ...newState.currentEvents].slice(0, 4) };
       }
 
+      // Advance active wars each week — update casualties, land, popularity
+      setActiveWars(prevWars => prevWars.map(w => {
+        const weeklyLand = w.strategy === 'shock_and_awe' ? 4 + Math.random() * 4
+          : w.strategy === 'siege' ? 2 + Math.random() * 2
+          : w.strategy === 'guerrilla' ? 1 + Math.random() * 2
+          : w.strategy === 'full_mobilization' ? 6 + Math.random() * 6
+          : 1 + Math.random() * 2;
+        const newLand = Math.min(95, w.landGained + weeklyLand);
+        const newCasualties = w.casualties + Math.floor(Math.random() * 150 + 50);
+        const popDelta = w.strategy === 'diplomatic_pressure' ? 1 : -2 - Math.random() * 3;
+        const newPop = Math.max(5, Math.min(100, w.warPopularity + popDelta));
+        const progress: ActiveWarState['warProgress'] = newLand >= 60 ? 'dominant' : newLand >= 35 ? 'winning' : newLand >= 15 ? 'stalemate' : 'losing';
+        return { ...w, weeksActive: w.weeksActive + 1, landGained: newLand, casualties: newCasualties, warPopularity: newPop, warProgress: progress, riotActive: newPop < 25 };
+      }));
+
       // By-election trigger (~5% chance per week)
       if (!prev.inElection && Math.random() < 0.05 && !byElectionTrigger) {
         const provinceCodes = ['ON', 'QC', 'BC', 'AB', 'MB', 'SK', 'NS', 'NB', 'NL', 'PE'];
@@ -501,6 +539,19 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       return { ...prev, stats: { ...prev.stats, approvalRating: Math.min(95, prev.stats.approvalRating + 3), partyStanding: Math.min(95, prev.stats.partyStanding + 2) } };
     });
   }, [supabase]);
+
+  // ── War State Management ─────────────────────────────────────────────────────
+  const addWar = useCallback((war: ActiveWarState) => {
+    setActiveWars(prev => [...prev.filter(w => w.country !== war.country), war]);
+  }, []);
+
+  const updateWar = useCallback((country: string, update: Partial<ActiveWarState>) => {
+    setActiveWars(prev => prev.map(w => w.country === country ? { ...w, ...update } : w));
+  }, []);
+
+  const removeWar = useCallback((country: string) => {
+    setActiveWars(prev => prev.filter(w => w.country !== country));
+  }, []);
 
   // ── Foreign Policy ──────────────────────────────────────────────────────────
   const executeForeignPolicy = useCallback((action: string, country: string, approvalChange: number, gdpChange: number) => {
@@ -682,6 +733,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       completeByElection, dismissByElection,
       executeForeignPolicy, scheduleSession, callEmergencySession, callOppositionDay,
       makePartyDeal,
+      activeWars, addWar, updateWar, removeWar,
     }}>
       {children}
     </GameContext.Provider>

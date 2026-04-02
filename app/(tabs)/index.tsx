@@ -326,10 +326,12 @@ export default function DashboardScreen() {
                   <Text style={[styles.actionText, { color: Colors.error }]}>Emergencies Act</Text>
                 </Pressable>
               ) : null}
-              <Pressable onPress={() => router.push('/supreme-court')} style={({ pressed }) => [styles.actionBtn, pressed && { opacity: 0.8 }]}>
-                <MaterialCommunityIcons name="gavel" size={22} color={Colors.gold} />
-                <Text style={styles.actionText}>Courts</Text>
-              </Pressable>
+              {gameState.isGoverning ? (
+                <Pressable onPress={() => router.push('/supreme-court')} style={({ pressed }) => [styles.actionBtn, pressed && { opacity: 0.8 }]}>
+                  <MaterialCommunityIcons name="gavel" size={22} color={Colors.gold} />
+                  <Text style={styles.actionText}>Courts</Text>
+                </Pressable>
+              ) : null}
               {gameState.isGoverning && (gameState.cabinet?.length || 0) > 0 ? (
                 <Pressable onPress={() => router.push('/cabinet-scandal')} style={({ pressed }) => [styles.actionBtn, styles.actionBtnDanger, pressed && { opacity: 0.8 }]}>
                   <MaterialCommunityIcons name="alert" size={22} color={Colors.error} />

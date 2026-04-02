@@ -72,28 +72,37 @@ export default function CreateBillScreen() {
       showAlert('Incomplete Bill', 'Please fill in the title, summary, and select a policy area.');
       return;
     }
-    if (!selectedSponsor && !customMPName.trim()) {
-      showAlert('No Sponsor', isGoverning
-        ? 'Select a Minister to sponsor this government bill. The Prime Minister cannot directly sponsor bills.'
-        : 'Select an MP or Shadow Minister to sponsor this bill. The Leader of the Opposition cannot directly sponsor bills.');
+
+    let sponsor = customMPName.trim() || (selectedSponsor ? selectedSponsor.split(' (')[0] : '');
+    let billType = isGoverning ? 'Government Bill' : "Private Member's Bill";
+
+    if (isGoverning && !sponsor) {
+      // PM didn't choose a minister — auto-assign random MP, becomes Private Member's Bill
+      const randomMP = DEFAULT_MP_NAMES[Math.floor(Math.random() * DEFAULT_MP_NAMES.length)];
+      sponsor = randomMP;
+      billType = "Private Member's Bill";
+    } else if (!isGoverning && !sponsor) {
+      showAlert('No Sponsor', 'Select an MP or Shadow Minister. The Leader of the Opposition cannot directly sponsor bills.');
       return;
     }
 
-    const sponsor = customMPName.trim() || selectedSponsor.split(' (')[0];
     const billTitle = title.startsWith('Bill') || title.startsWith('Private')
       ? title
       : `Bill C-${Math.floor(Math.random() * 500) + 100}: ${title}`;
 
-    // Include full text in description if provided
     const fullDescription = fullText.trim()
       ? `${description.trim()}\n\n--- BILL TEXT ---\n${fullText.trim()}`
       : description.trim();
 
     createBill(billTitle, fullDescription, topic, fiscalImpact.trim() || 'Fiscal impact TBD');
 
+    const autoNote = isGoverning && !selectedSponsor && !customMPName.trim()
+      ? `\n\nNo minister selected — automatically assigned to ${sponsor} as a Private Member's Bill.`
+      : '';
+
     showAlert(
       'Bill Introduced',
-      `${isGoverning ? 'Government bill' : "Private Member's Bill"} "${billTitle}" has been introduced by ${sponsor} in the House of Commons at First Reading.`,
+      `${billType} "${billTitle}" has been introduced by ${sponsor} in the House of Commons at First Reading.${autoNote}`,
       [{ text: 'View in Parliament', onPress: () => router.replace('/(tabs)/parliament') }]
     );
     router.back();
@@ -124,7 +133,7 @@ export default function CreateBillScreen() {
         <MaterialCommunityIcons name="information" size={13} color={partyColor} />
         <Text style={styles.sponsorNoteText}>
           {isGoverning
-            ? 'You must assign a Cabinet Minister to sponsor this bill. The Prime Minister cannot personally sponsor legislation.'
+            ? 'Select a Cabinet Minister to sponsor this as a Government Bill. If no minister is chosen, a random MP will be auto-assigned and it becomes a Private Member\'s Bill.'
             : 'You must assign an MP or Shadow Minister. The Leader of the Opposition cannot personally sponsor bills.'}
         </Text>
       </View>

@@ -1,8 +1,9 @@
-// Powered by OnSpace.AI — Emergencies Act scenario with Charter challenges, media scrutiny, opposition attacks
-import React, { useState, useRef, useEffect } from 'react';
+// Powered by OnSpace.AI — Emergencies Act (based on actual Canadian Emergencies Act 1988)
+// PM-only standalone screen: toggle real emergency types and orders, parliamentary safeguards
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, Pressable, TextInput,
-  Animated, KeyboardAvoidingView, Platform,
+  Animated, KeyboardAvoidingView, Platform, Switch,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -14,677 +15,715 @@ import { PARTIES } from '@/constants/parties';
 import { getSupabaseClient } from '@/template';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
-type EmergencyType = 'riot' | 'pandemic' | 'natural_disaster' | 'national_security' | 'economic_crisis';
-type ActPhase = 'crisis_alert' | 'deliberate' | 'invoked' | 'inquiry' | 'lifted' | 'court_challenge';
+type EmergencyType = 'public_welfare' | 'public_order' | 'international' | 'war';
+type ActStatus = 'not_invoked' | 'deliberating' | 'invoked' | 'parliament_review' | 'lifted';
 
-interface EmergencyMeasure {
+interface EmergencyOrder {
   id: string;
   label: string;
   description: string;
-  approvalImpact: number;
+  charterSection?: string;
   constitutionalRisk: number; // 0-100
-  effectiveness: number; // 0-100
-  selected: boolean;
-  charter: string; // Charter section at risk
+  approvalImpact: number;
+  enabled: boolean;
+  applicableTypes: EmergencyType[];
 }
 
-interface OppositionAttack {
-  partyName: string;
-  leaderName: string;
-  attack: string;
-  intensity: 'mild' | 'fierce' | 'scathing';
+interface ParliamentarySafeguard {
+  id: string;
+  label: string;
+  description: string;
+  completed: boolean;
+  required: boolean;
 }
 
-interface MediaStory {
-  outlet: string;
-  headline: string;
-  sentiment: 'positive' | 'negative' | 'neutral';
-}
-
-const EMERGENCY_TYPE_META: Record<EmergencyType, { icon: string; color: string; label: string; threshold: string }> = {
-  riot: { icon: 'fire', color: Colors.error, label: 'Civil Unrest / Riots', threshold: 'War popularity below 20% or sustained public unrest' },
-  pandemic: { icon: 'virus', color: Colors.warning, label: 'Public Health Emergency', threshold: 'Disease event reaches critical severity' },
-  natural_disaster: { icon: 'weather-hurricane', color: Colors.info, label: 'Natural Disaster', threshold: 'Catastrophic weather or geological event' },
-  national_security: { icon: 'shield-alert', color: Colors.error, label: 'National Security Threat', threshold: 'Foreign threat or domestic terrorism reaches crisis level' },
-  economic_crisis: { icon: 'chart-line-variant', color: Colors.warning, label: 'Economic Emergency', threshold: 'GDP collapse or financial system failure' },
+// ── Real Emergencies Act emergency types ──────────────────────────────────────
+const EMERGENCY_TYPES: Record<EmergencyType, {
+  label: string;
+  description: string;
+  icon: string;
+  color: string;
+  expiryDays: number;
+  triggers: string[];
+  legalThreshold: string;
+}> = {
+  public_welfare: {
+    label: 'Public Welfare Emergency',
+    description: 'A national emergency caused by a real or imminent fire, flood, drought, storm, earthquake, disease in humans/animals/plants, accident, or pollution — resulting in danger to life or property, social disruption, or breakdown in essential goods/services.',
+    icon: 'weather-hurricane',
+    color: Colors.info,
+    expiryDays: 90,
+    triggers: ['Natural disaster', 'Disease outbreak', 'Environmental accident', 'Critical infrastructure failure'],
+    legalThreshold: 'Must seriously endanger lives, health or safety of Canadians AND exceed provincial capacity AND cannot be dealt with under any other law.',
+  },
+  public_order: {
+    label: 'Public Order Emergency',
+    description: 'A national emergency arising from threats to the security of Canada severe enough to constitute a national emergency, including espionage, sabotage, foreign-influenced activities, violence or threats, and insurrection.',
+    icon: 'shield-alert',
+    color: Colors.warning,
+    expiryDays: 30,
+    triggers: ['Domestic terrorism', 'Foreign-influenced activities', 'Armed insurrection', 'Critical infrastructure blockade'],
+    legalThreshold: 'Must constitute a national emergency as defined under the CSIS Act — threats to security of Canada that are serious and credible.',
+  },
+  international: {
+    label: 'International Emergency',
+    description: 'A national emergency caused by an act of intimidation or coercion, or an actual or imminent use of serious force or violence, from outside Canada that is so serious as to be a national emergency.',
+    icon: 'earth-off',
+    color: Colors.gold,
+    expiryDays: 60,
+    triggers: ['Foreign state aggression', 'International coercion', 'Cross-border armed violence', 'Diplomatic crisis with serious threat'],
+    legalThreshold: 'Must involve actual or imminent use of serious force or violence from outside Canada, or threats of intimidation/coercion of international scope.',
+  },
+  war: {
+    label: 'War Emergency',
+    description: 'A national emergency arising from real or imminent armed conflict involving Canada or its allies — including a state of war, or armed conflict of a magnitude that is a national emergency.',
+    icon: 'sword-cross',
+    color: Colors.error,
+    expiryDays: 120,
+    triggers: ['Declaration of war', 'Armed attack on Canada', 'Allied state under attack', 'Major armed conflict involving Canadian forces'],
+    legalThreshold: 'Must involve real or imminent armed conflict involving Canada or its allies that constitutes a national emergency.',
+  },
 };
 
-const EMERGENCY_MEASURES: EmergencyMeasure[] = [
+// ── Orders & Regulations (based on real Emergencies Act powers) ───────────────
+const ALL_ORDERS: EmergencyOrder[] = [
+  // Public Welfare orders
   {
-    id: 'curfew',
-    label: 'National Curfew (10pm-6am)',
-    description: 'Restrict movement during overnight hours in affected areas. Military assists police in enforcement.',
-    approvalImpact: -8,
-    constitutionalRisk: 72,
-    effectiveness: 65,
-    selected: false,
-    charter: 'Section 9 — Freedom from Arbitrary Detention',
+    id: 'regulate_distribution',
+    label: 'Regulate Distribution of Essential Goods',
+    description: 'Regulate or prohibit the distribution, hoarding, disposal, or use of essential goods, food, water, fuel, medicines, or other supplies necessary for public health or safety.',
+    constitutionalRisk: 25,
+    approvalImpact: -2,
+    enabled: false,
+    applicableTypes: ['public_welfare'],
   },
   {
-    id: 'assembly_ban',
-    label: 'Ban Public Gatherings (50+)',
-    description: 'Prohibit public assemblies of 50 or more persons until the emergency is declared over.',
-    approvalImpact: -10,
-    constitutionalRisk: 85,
-    effectiveness: 70,
-    selected: false,
-    charter: 'Section 2(c) — Freedom of Peaceful Assembly',
+    id: 'authority_evacuation',
+    label: 'Authorize Evacuation Orders',
+    description: 'Authorize or order the evacuation of persons and the removal of property from disaster areas, and make provisions for shelter, welfare, and registration of evacuees.',
+    constitutionalRisk: 20,
+    approvalImpact: 2,
+    enabled: false,
+    applicableTypes: ['public_welfare'],
   },
   {
-    id: 'freeze_accounts',
-    label: 'Freeze Suspicious Financial Accounts',
-    description: 'Grant FINTRAC authority to freeze accounts of persons financing illegal activity during the emergency.',
-    approvalImpact: -6,
-    constitutionalRisk: 60,
-    effectiveness: 55,
-    selected: false,
-    charter: 'Section 8 — Freedom from Unreasonable Search',
-  },
-  {
-    id: 'military_deployment',
-    label: 'Deploy Military in Major Cities',
-    description: 'Authorize Canadian Armed Forces to maintain order in Toronto, Montreal, and Vancouver.',
-    approvalImpact: -5,
-    constitutionalRisk: 45,
-    effectiveness: 80,
-    selected: false,
-    charter: 'Section 7 — Right to Security of the Person',
-  },
-  {
-    id: 'media_restriction',
-    label: 'Restrict Coverage of Emergency Zones',
-    description: 'Restrict media access to active emergency zones for security reasons.',
-    approvalImpact: -15,
-    constitutionalRisk: 90,
-    effectiveness: 30,
-    selected: false,
-    charter: 'Section 2(b) — Freedom of Expression',
-  },
-  {
-    id: 'quarantine',
-    label: 'Mandatory Quarantine Orders',
-    description: 'Require exposed or symptomatic individuals to isolate. CBSA empowered to enforce at borders.',
-    approvalImpact: -3,
-    constitutionalRisk: 40,
-    effectiveness: 85,
-    selected: false,
-    charter: 'Section 6 — Mobility Rights',
-  },
-  {
-    id: 'supply_requisition',
-    label: 'Requisition Private Resources',
-    description: 'Government may commandeer private vehicles, buildings, and medical supplies for emergency use.',
-    approvalImpact: -4,
+    id: 'requisition_property',
+    label: 'Requisition Private Property',
+    description: 'Authorize federal authorities to commandeer private property, facilities, and resources necessary to respond to the emergency. Compensation is paid to owners.',
+    charterSection: 'Section 7 — Property Rights (Common Law)',
     constitutionalRisk: 35,
-    effectiveness: 75,
-    selected: false,
-    charter: 'Section 7 — Right to Property (Common Law)',
+    approvalImpact: -4,
+    enabled: false,
+    applicableTypes: ['public_welfare', 'war'],
   },
   {
     id: 'emergency_spending',
-    label: 'Authorize Emergency Spending (no Parliament)',
-    description: 'Bypass normal parliamentary appropriations for emergency expenditures up to $25B.',
+    label: 'Authorize Emergency Expenditures',
+    description: 'Authorize emergency government spending without the normal parliamentary appropriations process. Subject to audit and full parliamentary reporting within 60 days.',
+    constitutionalRisk: 22,
+    approvalImpact: -1,
+    enabled: false,
+    applicableTypes: ['public_welfare', 'public_order', 'international', 'war'],
+  },
+  // Public Order orders
+  {
+    id: 'prohibit_assemblies',
+    label: 'Regulate & Prohibit Certain Public Assemblies',
+    description: 'Regulate or prohibit public assemblies constituting an emergency threat — excluding lawful advocacy, protest, or dissent. Applies only to assemblies posing a direct threat to public safety.',
+    charterSection: 'Section 2(c) — Freedom of Peaceful Assembly',
+    constitutionalRisk: 80,
+    approvalImpact: -10,
+    enabled: false,
+    applicableTypes: ['public_order'],
+  },
+  {
+    id: 'designate_protected',
+    label: 'Designate & Secure Protected Areas',
+    description: 'Designate and secure places where emergency activities must not occur — such as international border crossings, critical infrastructure, Parliament Hill, and government facilities.',
+    constitutionalRisk: 45,
+    approvalImpact: -3,
+    enabled: false,
+    applicableTypes: ['public_order', 'international'],
+  },
+  {
+    id: 'essential_services',
+    label: 'Direct Persons to Render Essential Services',
+    description: 'Direct specified persons and groups to provide essential services required during the emergency, including transport operators, healthcare workers, and utility personnel.',
+    charterSection: 'Section 6 — Mobility Rights',
+    constitutionalRisk: 55,
+    approvalImpact: -6,
+    enabled: false,
+    applicableTypes: ['public_order', 'public_welfare', 'war'],
+  },
+  {
+    id: 'financial_regulation',
+    label: 'Authorize Financial Institution Measures',
+    description: 'Authorize or direct specified financial institutions to render essential services and regulate or prohibit the use of property to finance or facilitate emergency-related illegal activities.',
+    charterSection: 'Section 8 — Freedom from Unreasonable Search',
+    constitutionalRisk: 62,
+    approvalImpact: -6,
+    enabled: false,
+    applicableTypes: ['public_order'],
+  },
+  {
+    id: 'rcmp_provincial',
+    label: 'Authorize RCMP to Enforce Provincial Laws',
+    description: 'Authorize the Royal Canadian Mounted Police to enforce municipal and provincial laws by means of incorporation by reference where local authorities cannot act effectively.',
+    constitutionalRisk: 38,
     approvalImpact: -2,
-    constitutionalRisk: 25,
-    effectiveness: 90,
-    selected: false,
-    charter: 'Parliamentary Privilege — Spending Accountability',
+    enabled: false,
+    applicableTypes: ['public_order', 'public_welfare'],
+  },
+  // International/War orders
+  {
+    id: 'military_deployment',
+    label: 'Deploy Canadian Armed Forces Domestically',
+    description: 'Authorize the deployment of the Canadian Armed Forces in support of law enforcement and public safety operations within Canada during the emergency.',
+    charterSection: 'Section 7 — Right to Security of the Person',
+    constitutionalRisk: 42,
+    approvalImpact: -5,
+    enabled: false,
+    applicableTypes: ['international', 'war', 'public_order'],
+  },
+  {
+    id: 'control_foreign_nationals',
+    label: 'Regulate Entry and Movements of Persons',
+    description: 'Regulate or prohibit travel to or from Canada or any specified area of Canada, and control movements of persons within Canada during the international or war emergency.',
+    charterSection: 'Section 6 — Mobility Rights',
+    constitutionalRisk: 58,
+    approvalImpact: -7,
+    enabled: false,
+    applicableTypes: ['international', 'war'],
+  },
+  {
+    id: 'war_production',
+    label: 'Direct War/Emergency Production',
+    description: 'Authorize and direct the production and distribution of essential goods, services, and materials needed for the war or emergency effort — including military equipment and supplies.',
+    constitutionalRisk: 30,
+    approvalImpact: -2,
+    enabled: false,
+    applicableTypes: ['war', 'international'],
+  },
+  {
+    id: 'media_regulation',
+    label: 'Regulate Information Related to Emergency',
+    description: 'Regulate specified information relating to the emergency, including restricting access to active emergency zones for security reasons. Does NOT apply to news, comment, or opinion.',
+    charterSection: 'Section 2(b) — Freedom of Expression',
+    constitutionalRisk: 88,
+    approvalImpact: -14,
+    enabled: false,
+    applicableTypes: ['public_order', 'war'],
   },
 ];
 
-const OPPOSITION_ATTACKS: Record<string, OppositionAttack[]> = {
-  riot: [
-    { partyName: 'NDP', leaderName: 'Opposition Leader', attack: 'The Emergencies Act is being weaponized against peaceful protesters exercising their constitutional rights. This is a dark day for Canadian democracy.', intensity: 'scathing' },
-    { partyName: 'Conservative', leaderName: 'Conservative Leader', attack: 'The PM has once again chosen to invoke extraordinary powers rather than engage in dialogue. Canadians deserve answers, not jackboots.', intensity: 'fierce' },
-  ],
-  pandemic: [
-    { partyName: 'Conservative', leaderName: 'Conservative Leader', attack: 'Unelected bureaucrats are now dictating which Canadians can leave their homes. The government must be held accountable in Parliament — not by royal proclamation.', intensity: 'fierce' },
-    { partyName: 'Bloc', leaderName: 'Bloc Leader', attack: 'Quebec has its own health competencies. The federal government is using this emergency as a pretext to centralize power at the expense of provincial autonomy.', intensity: 'fierce' },
-  ],
-  natural_disaster: [
-    { partyName: 'NDP', leaderName: 'NDP Leader', attack: 'We support emergency response — but the Emergencies Act is a significant step. We will be watching closely to ensure it is not used to silence critics or limit aid organizations.', intensity: 'mild' },
-    { partyName: 'Conservative', leaderName: 'Conservative Leader', attack: 'Why was Parliament not recalled first? The government should convene emergency sittings — not suspend democratic oversight entirely.', intensity: 'fierce' },
-  ],
-  national_security: [
-    { partyName: 'NDP', leaderName: 'NDP Leader', attack: 'Indefinite invocation of the Emergencies Act sets a chilling precedent. We need clear timelines, parliamentary review, and a sunset clause. This cannot become permanent.', intensity: 'fierce' },
-    { partyName: 'Bloc', leaderName: 'Bloc Leader', attack: 'We will not be silenced by vague security concerns. Parliament must sit and scrutinize every measure being taken in the name of national security.', intensity: 'mild' },
-  ],
-  economic_crisis: [
-    { partyName: 'Conservative', leaderName: 'Conservative Leader', attack: 'This government created the conditions for economic collapse through reckless spending, and now they want emergency powers to cover it up. Canadians will not accept this.', intensity: 'scathing' },
-    { partyName: 'NDP', leaderName: 'NDP Leader', attack: 'We support economic intervention — but the Emergencies Act cannot be an excuse to bypass workers rights protections or environmental regulations.', intensity: 'mild' },
-  ],
-};
-
-function generateMediaReaction(type: EmergencyType, measures: EmergencyMeasure[]): MediaStory[] {
-  const highRisk = measures.filter(m => m.selected && m.constitutionalRisk > 70);
-  const stories: MediaStory[] = [
-    { outlet: 'CBC News', headline: `PM invokes Emergencies Act — ${highRisk.length > 0 ? 'legal experts warn of overreach' : 'government cites extraordinary circumstances'}`, sentiment: highRisk.length > 1 ? 'negative' : 'neutral' },
-    { outlet: 'The Globe and Mail', headline: `Emergencies Act: ${measures.filter(m => m.selected).length} measures invoked — Charter experts divided on constitutionality`, sentiment: 'neutral' },
-    { outlet: 'National Post', headline: `Trudeau-style power grab? PM's Emergencies Act invocation draws fierce criticism from civil libertarians`, sentiment: 'negative' },
-    { outlet: 'Toronto Star', headline: `${type === 'riot' ? 'Protests' : type === 'pandemic' ? 'Health crisis' : 'Emergency'} forces government action — but at what constitutional cost?`, sentiment: 'neutral' },
-    { outlet: 'CTV News', headline: `Emergencies Act LIVE: ${measures.filter(m => m.selected).length} extraordinary measures now in effect — RCMP activating enforcement protocols`, sentiment: 'neutral' },
-  ];
-  return stories;
-}
+const PARLIAMENTARY_SAFEGUARDS: ParliamentarySafeguard[] = [
+  {
+    id: 'consult_provinces',
+    label: 'Consult Provinces & Territories',
+    description: 'The Governor in Council must consult with the lieutenant governors in council of the provinces before declaring a public order or welfare emergency, unless urgency prevents adequate consultation.',
+    completed: false,
+    required: true,
+  },
+  {
+    id: 'report_parliament',
+    label: 'Report to Parliament Within 7 Days',
+    description: 'A declaration of emergency must be reported to Parliament immediately. If Parliament is not sitting, Parliament must be recalled within 7 days of the declaration.',
+    completed: false,
+    required: true,
+  },
+  {
+    id: 'house_confirmation',
+    label: 'House of Commons Confirmation Vote',
+    description: 'Both the House of Commons must consider and confirm the declaration. If either chamber votes to revoke the declaration, the emergency ends immediately.',
+    completed: false,
+    required: true,
+  },
+  {
+    id: 'senate_confirmation',
+    label: 'Senate Confirmation Vote',
+    description: 'The Senate must also confirm the declaration. The declaration expires within 30 days unless confirmed and extended by both chambers.',
+    completed: false,
+    required: true,
+  },
+  {
+    id: 'special_committee',
+    label: 'Establish Parliamentary Review Committee',
+    description: 'A Special Joint Committee of the House of Commons and Senate must be established to review the exercise of powers under the emergency on an ongoing basis.',
+    completed: false,
+    required: true,
+  },
+  {
+    id: 'public_inquiry',
+    label: 'Commit to Public Inquiry After Emergency',
+    description: 'After the emergency ends, the government must initiate a public inquiry into the circumstances and use of emergency powers within 60 days.',
+    completed: false,
+    required: false,
+  },
+];
 
 export default function EmergenciesActScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { gameState, executeForeignPolicy, issuePressStatement } = useGame();
+  const { gameState, issuePressStatement, executeForeignPolicy } = useGame();
   const { showAlert } = useAlert();
   const supabase = getSupabaseClient();
 
-  const [phase, setPhase] = useState<ActPhase>('crisis_alert');
-  const [emergencyType, setEmergencyType] = useState<EmergencyType>('riot');
-  const [measures, setMeasures] = useState<EmergencyMeasure[]>(EMERGENCY_MEASURES.map(m => ({ ...m })));
-  const [oppositionAttacks, setOppositionAttacks] = useState<OppositionAttack[]>([]);
-  const [mediaStories, setMediaStories] = useState<MediaStory[]>([]);
-  const [pgResponse, setPgResponse] = useState('');
-  const [inquiryStatement, setInquiryStatement] = useState('');
-  const [agAnswers, setAgAnswers] = useState<string[]>([]);
-  const [agCurrentQ, setAgCurrentQ] = useState(0);
-  const [agAnswer, setAgAnswer] = useState('');
-  const [loadingAI, setLoadingAI] = useState(false);
-  const [aiQuestions, setAiQuestions] = useState<{ question: string; topic: string }[]>([]);
-  const [actInvoked, setActInvoked] = useState(false);
+  const [actStatus, setActStatus] = useState<ActStatus>('not_invoked');
+  const [selectedType, setSelectedType] = useState<EmergencyType | null>(null);
+  const [orders, setOrders] = useState<EmergencyOrder[]>(ALL_ORDERS);
+  const [safeguards, setSafeguards] = useState<ParliamentarySafeguard[]>(PARLIAMENTARY_SAFEGUARDS);
+  const [justification, setJustification] = useState('');
   const [weeksActive, setWeeksActive] = useState(0);
-  const [courtChallengeResult, setCourtChallengeResult] = useState<'upheld' | 'struck_down' | 'partial' | null>(null);
+  const [parliamentVoteResult, setParliamentVoteResult] = useState<{ house: boolean; senate: boolean } | null>(null);
+  const [loadingAI, setLoadingAI] = useState(false);
 
   const pulseAnim = useRef(new Animated.Value(1)).current;
-  const fadeAnim = useRef(new Animated.Value(1)).default;
 
   useEffect(() => {
-    // Determine emergency type from game state (riots from war, or narrative events)
-    if (gameState) {
-      // Check for riot conditions
-      const stats = gameState.stats;
-      if (stats.approvalRating < 22) setEmergencyType('riot');
-      else if (stats.gdpGrowth < -3) setEmergencyType('economic_crisis');
-      else setEmergencyType('riot'); // default
+    if (actStatus === 'invoked') {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, { toValue: 1.2, duration: 700, useNativeDriver: true }),
+          Animated.timing(pulseAnim, { toValue: 1, duration: 700, useNativeDriver: true }),
+        ])
+      ).start();
     }
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulseAnim, { toValue: 1.15, duration: 800, useNativeDriver: true }),
-        Animated.timing(pulseAnim, { toValue: 1, duration: 800, useNativeDriver: true }),
-      ])
-    ).start();
-  }, [gameState]);
+  }, [actStatus]);
 
-  if (!gameState || !gameState.isGoverning) {
+  if (!gameState) return null;
+  const party = PARTIES.find(p => p.id === gameState.playerPartyId);
+  const partyColor = party?.color || Colors.gold;
+
+  // ── PM Only ─────────────────────────────────────────────────────────────────
+  if (!gameState.isGoverning) {
     return (
       <View style={[styles.container, { paddingTop: insets.top }]}>
         <View style={styles.header}>
-          <Pressable onPress={() => router.back()} style={styles.backBtn}><MaterialCommunityIcons name="close" size={22} color={Colors.textSecondary} /></Pressable>
+          <Pressable onPress={() => router.back()} style={styles.iconBtn}>
+            <MaterialCommunityIcons name="close" size={22} color={Colors.textSecondary} />
+          </Pressable>
           <Text style={styles.headerTitle}>Emergencies Act</Text>
           <View style={{ width: 40 }} />
         </View>
-        <View style={styles.notGovCard}>
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: Spacing.xl, gap: Spacing.md }}>
           <MaterialCommunityIcons name="lock" size={48} color={Colors.textMuted} />
-          <Text style={styles.notGovTitle}>PM Only</Text>
-          <Text style={styles.notGovDesc}>The Emergencies Act can only be invoked by the Prime Minister of Canada.</Text>
+          <Text style={{ fontSize: FontSize.xl, fontWeight: FontWeight.bold, color: Colors.textSecondary, textAlign: 'center' }}>Prime Minister Only</Text>
+          <Text style={{ fontSize: FontSize.sm, color: Colors.textMuted, textAlign: 'center', lineHeight: 22 }}>
+            Only the Prime Minister can invoke the Emergencies Act on behalf of the Governor in Council.
+          </Text>
         </View>
       </View>
     );
   }
 
-  const party = PARTIES.find(p => p.id === gameState.playerPartyId);
-  const partyColor = party?.color || Colors.gold;
-  const selectedMeasures = measures.filter(m => m.selected);
-  const avgConstitutionalRisk = selectedMeasures.length > 0 ? Math.round(selectedMeasures.reduce((s, m) => s + m.constitutionalRisk, 0) / selectedMeasures.length) : 0;
-  const totalApprovalImpact = selectedMeasures.reduce((s, m) => s + m.approvalImpact, 0);
-  const typeInfo = EMERGENCY_TYPE_META[emergencyType];
+  const selectedOrders = orders.filter(o => o.enabled);
+  const avgRisk = selectedOrders.length > 0 ? Math.round(selectedOrders.reduce((s, o) => s + o.constitutionalRisk, 0) / selectedOrders.length) : 0;
+  const totalApprovalImpact = selectedOrders.reduce((s, o) => s + o.approvalImpact, 0);
+  const typeOrders = selectedType ? orders.filter(o => o.applicableTypes.includes(selectedType)) : [];
+  const completedSafeguards = safeguards.filter(s => s.completed).length;
+  const requiredSafeguardsCompleted = safeguards.filter(s => s.required && s.completed).length;
+  const totalRequired = safeguards.filter(s => s.required).length;
+  const typeInfo = selectedType ? EMERGENCY_TYPES[selectedType] : null;
 
-  const transitionPhase = (next: ActPhase) => {
-    setPhase(next);
+  const toggleOrder = (id: string) => {
+    setOrders(prev => prev.map(o => o.id === id ? { ...o, enabled: !o.enabled } : o));
   };
 
-  const toggleMeasure = (id: string) => {
-    setMeasures(prev => prev.map(m => m.id === id ? { ...m, selected: !m.selected } : m));
+  const toggleSafeguard = (id: string) => {
+    setSafeguards(prev => prev.map(s => s.id === id ? { ...s, completed: !s.completed } : s));
   };
 
   const handleInvokeAct = () => {
-    if (selectedMeasures.length === 0) {
-      showAlert('Select Measures', 'You must select at least one emergency measure before invoking the Act.');
+    if (!selectedType) {
+      showAlert('Select Emergency Type', 'Choose one of the four emergency types defined under the Emergencies Act.');
       return;
     }
+    if (selectedOrders.length === 0) {
+      showAlert('No Orders Selected', 'Enable at least one order or regulation before invoking the Act.');
+      return;
+    }
+    if (!justification.trim() || justification.trim().split(/\s+/).filter(Boolean).length < 20) {
+      showAlert('Justification Required', 'Provide a formal justification of at least 20 words explaining how the legal threshold is met.');
+      return;
+    }
+
+    const typeData = EMERGENCY_TYPES[selectedType];
+    const highRiskOrders = selectedOrders.filter(o => o.constitutionalRisk > 70);
+
     showAlert(
       'Invoke the Emergencies Act?',
-      `You are about to invoke the Emergencies Act with ${selectedMeasures.length} emergency measures.\n\nEstimated approval impact: ${totalApprovalImpact}%\nConstitutional risk: ${avgConstitutionalRisk}%\n\nThis will trigger:\n• Parliament must ratify within 7 days\n• Charter challenges filed immediately\n• International media scrutiny\n• Opposition confidence vote threat\n\nAre you certain?`,
+      `Emergency Type: ${typeData.label}\n\nOrders enabled: ${selectedOrders.length}\nConstitutional risk: ${avgRisk}%\nApproval impact: ${totalApprovalImpact}%\n${highRiskOrders.length > 0 ? `\n⚠️ ${highRiskOrders.length} high-risk order(s) will face immediate Charter challenges.\n` : ''}\nParliament must confirm within 7 days. Either chamber can revoke the declaration at any time.\n\nAre you certain?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'INVOKE EMERGENCIES ACT',
           style: 'destructive',
           onPress: () => {
-            setActInvoked(true);
+            setActStatus('invoked');
             setWeeksActive(1);
-            const attacks = OPPOSITION_ATTACKS[emergencyType] || OPPOSITION_ATTACKS['riot'];
-            setOppositionAttacks(attacks);
-            const media = generateMediaReaction(emergencyType, measures);
-            setMediaStories(media);
-            issuePressStatement(`The Government of Canada has invoked the Emergencies Act in response to a ${typeInfo.label} emergency. ${selectedMeasures.map(m => m.label).join(', ')} are now in effect.`);
-            transitionPhase('invoked');
+            issuePressStatement(`The Government of Canada has invoked the Emergencies Act — ${typeData.label}. The following emergency orders are now in effect: ${selectedOrders.map(o => o.label).join(', ')}. Parliament has been notified and will be recalled within 7 days for confirmation.`);
+            executeForeignPolicy?.('emergency_act', 'domestic', totalApprovalImpact, 0);
           },
         },
       ]
     );
   };
 
-  const fetchCourtQuestions = async () => {
-    setLoadingAI(true);
-    try {
-      const { data } = await supabase.functions.invoke('ai-question-period', {
-        body: {
-          partyName: party?.name, leaderName: gameState.playerName, isGoverning: true,
-          stats: gameState.stats, currentEvents: [], rivals: [], weekNumber: gameState.currentWeek,
-          parliamentNumber: gameState.parliamentNumber, recentNewsHeadlines: [],
-          context: `This is a Supreme Court of Canada challenge to the Emergencies Act invocation. The government invoked: ${selectedMeasures.map(m => m.label).join(', ')}. The Charter sections at risk are: ${selectedMeasures.map(m => m.charter).join('; ')}. Generate 3 hard legal questions for the Attorney General defending the emergency measures. Focus on Section 1 reasonable limits, proportionality, and whether less intrusive options existed.`,
-        },
-      });
-      if (data?.questions?.length >= 2) {
-        setAiQuestions(data.questions.slice(0, 3).map((q: any) => ({ question: q.question, topic: q.topic || 'Charter' })));
-      } else {
-        setAiQuestions([
-          { question: `The Emergencies Act requires a "national emergency" that cannot be dealt with under any other law. How does ${typeInfo.label} meet this high legal threshold? Could existing legislation have sufficed?`, topic: 'Threshold Test' },
-          { question: `The measures include ${selectedMeasures[0]?.label}. Is this proportionate? Specifically, how does the severity of the restriction match the scale of the threat?`, topic: 'Proportionality' },
-          { question: `Several experts argue the emergency will be used beyond its stated duration. What are the precise review mechanisms and sunset clauses built into these measures to prevent indefinite use?`, topic: 'Duration & Oversight' },
-        ]);
-      }
-    } catch {
-      setAiQuestions([
-        { question: `The Emergencies Act requires a "national emergency" that cannot be dealt with under any other law. How does ${typeInfo.label} meet this high legal threshold?`, topic: 'Threshold Test' },
-        { question: `How is the principle of proportionality satisfied when ${selectedMeasures.map(m => m.label).slice(0, 2).join(' and ')} are implemented?`, topic: 'Proportionality' },
-        { question: 'What specific review mechanisms ensure Parliamentary oversight and prevent indefinite use of these extraordinary powers?', topic: 'Oversight' },
-      ]);
-    }
-    setLoadingAI(false);
-  };
+  const handleParliamentVote = () => {
+    const houseApproves = Math.random() > (avgRisk > 70 ? 0.45 : 0.25);
+    const senateApproves = Math.random() > (avgRisk > 70 ? 0.4 : 0.3);
+    setParliamentVoteResult({ house: houseApproves, senate: senateApproves });
 
-  const handleAgAnswer = () => {
-    if (!agAnswer.trim()) return;
-    const words = agAnswer.trim().split(/\s+/).filter(Boolean).length;
-    const quality = words > 80 ? 'strong' : words > 40 ? 'adequate' : 'weak';
-    const newAnswers = [...agAnswers, agAnswer];
-    setAgAnswers(newAnswers);
-    setAgAnswer('');
-    if (newAnswers.length >= aiQuestions.length) {
-      // Compute result
-      const totalWords = newAnswers.reduce((s, a) => s + a.split(/\s+/).filter(Boolean).length, 0);
-      const upheld = avgConstitutionalRisk < 60 || totalWords > 250;
-      const result: 'upheld' | 'struck_down' | 'partial' = upheld && avgConstitutionalRisk < 80 ? 'upheld' : avgConstitutionalRisk > 75 ? 'struck_down' : 'partial';
-      setCourtChallengeResult(result);
-      transitionPhase('lifted');
+    if (!houseApproves || !senateApproves) {
+      showAlert(
+        'Parliament Has Revoked the Emergency',
+        `${!houseApproves ? 'The House of Commons' : 'The Senate'} has voted to revoke the emergency declaration. The Emergencies Act is immediately lifted. All emergency orders cease to have effect.`,
+        [{ text: 'Accept Ruling', onPress: () => { setActStatus('lifted'); } }]
+      );
     } else {
-      setAgCurrentQ(prev => prev + 1);
+      showAlert('Emergency Confirmed', 'Both the House of Commons and Senate have confirmed the emergency declaration. The Act remains in force.');
+      setSafeguards(prev => prev.map(s => s.id === 'house_confirmation' || s.id === 'senate_confirmation' ? { ...s, completed: true } : s));
     }
   };
 
-  // ── CRISIS ALERT ──────────────────────────────────────────────────────────────
-  if (phase === 'crisis_alert') {
-    return (
-      <View style={[styles.container, { paddingTop: insets.top }]}>
-        <View style={[styles.crisisHeader, { borderBottomColor: typeInfo.color + '44' }]}>
-          <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
-            <MaterialCommunityIcons name={typeInfo.icon as any} size={22} color={typeInfo.color} />
-          </Animated.View>
-          <Text style={[styles.crisisHeaderText, { color: typeInfo.color }]}>NATIONAL EMERGENCY</Text>
-          <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
-            <MaterialCommunityIcons name={typeInfo.icon as any} size={22} color={typeInfo.color} />
-          </Animated.View>
-        </View>
-        <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 40 }]} showsVerticalScrollIndicator={false}>
-          <View style={[styles.crisisCard, { borderColor: typeInfo.color + '55', backgroundColor: typeInfo.color + '08' }]}>
-            <MaterialCommunityIcons name={typeInfo.icon as any} size={56} color={typeInfo.color} />
-            <Text style={[styles.crisisTypeLabel, { color: typeInfo.color }]}>{typeInfo.label.toUpperCase()}</Text>
-            <Text style={styles.crisisDesc}>
-              A crisis has reached a critical threshold. The Prime Minister is being briefed by the Clerk of the Privy Council, the RCMP Commissioner, CSIS Director, and the Chief of the Defence Staff.
-            </Text>
-            <View style={[styles.thresholdNote, { borderColor: typeInfo.color + '33' }]}>
-              <MaterialCommunityIcons name="alert-circle" size={13} color={typeInfo.color} />
-              <Text style={[styles.thresholdNoteText, { color: typeInfo.color }]}>Trigger: {typeInfo.threshold}</Text>
-            </View>
-          </View>
-
-          {/* Emergency type selection */}
-          <Text style={styles.sectionLabel}>EMERGENCY CLASSIFICATION</Text>
-          <View style={styles.typeGrid}>
-            {(Object.entries(EMERGENCY_TYPE_META) as [EmergencyType, typeof EMERGENCY_TYPE_META[keyof typeof EMERGENCY_TYPE_META]][]).map(([type, meta]) => (
-              <Pressable key={type} onPress={() => setEmergencyType(type)} style={[styles.typeCard, emergencyType === type && { borderColor: meta.color, backgroundColor: meta.color + '11' }]}>
-                <MaterialCommunityIcons name={meta.icon as any} size={20} color={emergencyType === type ? meta.color : Colors.textMuted} />
-                <Text style={[styles.typeCardLabel, emergencyType === type && { color: meta.color }]}>{meta.label.split(' / ')[0]}</Text>
-              </Pressable>
-            ))}
-          </View>
-
-          {/* Intelligence briefing */}
-          <View style={styles.briefingCard}>
-            <Text style={styles.sectionLabel}>PRIVY COUNCIL BRIEFING</Text>
-            <View style={styles.briefingRow}>
-              <MaterialCommunityIcons name="police-badge" size={13} color={Colors.error} />
-              <Text style={styles.briefingText}><Text style={styles.briefingSource}>RCMP Commissioner:</Text> Existing law enforcement resources are insufficient. Requesting extraordinary authorities.</Text>
-            </View>
-            <View style={styles.briefingRow}>
-              <MaterialCommunityIcons name="shield" size={13} color={Colors.info} />
-              <Text style={styles.briefingText}><Text style={styles.briefingSource}>CSIS Director:</Text> Intelligence indicates escalation is likely without decisive federal action this week.</Text>
-            </View>
-            <View style={styles.briefingRow}>
-              <MaterialCommunityIcons name="scale-balance" size={13} color={Colors.warning} />
-              <Text style={styles.briefingText}><Text style={styles.briefingSource}>Justice Minister:</Text> Any invocation must satisfy the Section 1 proportionality test. Constitutional risk is significant.</Text>
-            </View>
-            <View style={styles.briefingRow}>
-              <MaterialCommunityIcons name="finance" size={13} color={Colors.gold} />
-              <Text style={styles.briefingText}><Text style={styles.briefingSource}>Finance Minister:</Text> Economic cost of inaction exceeds $3B/week. Fiscal case for intervention is strong.</Text>
-            </View>
-          </View>
-
-          {/* Options */}
-          <View style={styles.responseOptions}>
-            <Pressable onPress={() => transitionPhase('deliberate')} style={({ pressed }) => [styles.primaryBtn, { backgroundColor: typeInfo.color }, pressed && { opacity: 0.85 }]}>
-              <MaterialCommunityIcons name="gavel" size={18} color="#fff" />
-              <Text style={styles.primaryBtnText}>Deliberate — Select Emergency Measures</Text>
-            </Pressable>
-            <Pressable onPress={() => { showAlert('Act Not Invoked', 'You have chosen not to invoke the Emergencies Act. Conventional law enforcement will handle the crisis. Approval may drop due to perceived inaction.'); router.back(); }} style={({ pressed }) => [styles.secondaryBtn, pressed && { opacity: 0.8 }]}>
-              <Text style={styles.secondaryBtnText}>Do Not Invoke — Handle via Conventional Powers</Text>
-            </Pressable>
-          </View>
-        </ScrollView>
-      </View>
+  const handleLiftAct = () => {
+    showAlert(
+      'Lift the Emergencies Act?',
+      'All emergency orders cease immediately. A public inquiry must be initiated within 60 days as required by law.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Lift Act',
+          onPress: () => {
+            setActStatus('lifted');
+            issuePressStatement('The Prime Minister has revoked the declaration of emergency. The Emergencies Act is no longer in force. All emergency orders have ceased to have effect. A public inquiry will be initiated within 60 days.');
+          },
+        },
+      ]
     );
-  }
+  };
 
-  // ── DELIBERATE — SELECT MEASURES ─────────────────────────────────────────────
-  if (phase === 'deliberate') {
+  // ── NOT INVOKED — Main Configuration ─────────────────────────────────────────
+  if (actStatus === 'not_invoked' || actStatus === 'deliberating') {
     return (
-      <View style={[styles.container, { paddingTop: insets.top }]}>
+      <KeyboardAvoidingView style={[styles.container, { paddingTop: insets.top }]} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <View style={styles.header}>
-          <Pressable onPress={() => transitionPhase('crisis_alert')} style={styles.backBtn}><MaterialCommunityIcons name="arrow-left" size={20} color={Colors.textSecondary} /></Pressable>
+          <Pressable onPress={() => router.back()} style={styles.iconBtn}>
+            <MaterialCommunityIcons name="arrow-left" size={22} color={Colors.textSecondary} />
+          </Pressable>
           <View style={{ flex: 1 }}>
-            <Text style={styles.headerTitle}>Select Emergency Measures</Text>
-            <Text style={styles.headerSub}>{selectedMeasures.length} measures selected</Text>
+            <Text style={styles.headerTitle}>Emergencies Act</Text>
+            <Text style={styles.headerSub}>Emergencies Act, R.S.C. 1985, c. 22 (4th Supp.)</Text>
+          </View>
+          <View style={[styles.pmBadge, { backgroundColor: partyColor + '22', borderColor: partyColor + '44' }]}>
+            <Text style={[styles.pmBadgeText, { color: partyColor }]}>PM</Text>
           </View>
         </View>
-        <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 100 }]} showsVerticalScrollIndicator={false}>
-          {/* Risk meter */}
-          <View style={[styles.riskMeter, { borderColor: avgConstitutionalRisk > 70 ? Colors.error + '55' : avgConstitutionalRisk > 40 ? Colors.warning + '55' : Colors.success + '55' }]}>
-            <View style={styles.riskMeterRow}>
-              <Text style={styles.riskMeterLabel}>CONSTITUTIONAL RISK</Text>
-              <Text style={[styles.riskMeterValue, { color: avgConstitutionalRisk > 70 ? Colors.error : avgConstitutionalRisk > 40 ? Colors.warning : Colors.success }]}>{avgConstitutionalRisk}%</Text>
+
+        <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 40 }]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+          {/* Legal context */}
+          <View style={styles.legalContextCard}>
+            <MaterialCommunityIcons name="scale-balance" size={16} color={Colors.gold} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.legalContextTitle}>Legal Threshold — Section 3</Text>
+              <Text style={styles.legalContextText}>
+                A national emergency is an urgent and critical situation of a temporary nature that seriously endangers the lives, health or safety of Canadians or seriously threatens Canada's sovereignty, security, or territorial integrity — AND cannot be effectively dealt with under any other law of Canada.
+              </Text>
             </View>
-            <View style={styles.riskBar}>
-              <View style={[styles.riskBarFill, { flex: avgConstitutionalRisk, backgroundColor: avgConstitutionalRisk > 70 ? Colors.error : avgConstitutionalRisk > 40 ? Colors.warning : Colors.success }]} />
-              <View style={{ flex: 100 - avgConstitutionalRisk }} />
-            </View>
-            <Text style={styles.riskMeterNote}>Approval impact if invoked: {totalApprovalImpact}% | High-risk measures trigger automatic Charter challenges</Text>
           </View>
 
-          <Text style={styles.sectionNote}>Select the measures you wish to include in the Emergencies Act proclamation. Each measure carries constitutional risk — measures above 70% will be automatically challenged in court.</Text>
-
-          {measures.map(m => (
-            <Pressable key={m.id} onPress={() => toggleMeasure(m.id)} style={({ pressed }) => [styles.measureCard, m.selected && { borderColor: typeInfo.color, backgroundColor: typeInfo.color + '08' }, pressed && { opacity: 0.85 }]}>
-              <View style={[styles.measureCheck, m.selected && { backgroundColor: typeInfo.color, borderColor: typeInfo.color }]}>
-                {m.selected ? <MaterialCommunityIcons name="check" size={12} color="#fff" /> : null}
+          {/* Step 1: Emergency Type */}
+          <Text style={styles.sectionLabel}>STEP 1 — SELECT EMERGENCY TYPE (Part I–IV)</Text>
+          {(Object.entries(EMERGENCY_TYPES) as [EmergencyType, typeof EMERGENCY_TYPES[keyof typeof EMERGENCY_TYPES]][]).map(([type, meta]) => (
+            <Pressable
+              key={type}
+              onPress={() => { setSelectedType(type); setActStatus('deliberating'); }}
+              style={({ pressed }) => [
+                styles.typeCard,
+                selectedType === type && { borderColor: meta.color, backgroundColor: meta.color + '0D' },
+                pressed && { opacity: 0.85 },
+              ]}
+            >
+              <View style={styles.typeCardHeader}>
+                <MaterialCommunityIcons name={meta.icon as any} size={22} color={selectedType === type ? meta.color : Colors.textMuted} />
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.typeCardTitle, selectedType === type && { color: meta.color }]}>{meta.label}</Text>
+                  <Text style={styles.typeCardExpiry}>Max {meta.expiryDays} days · Requires parliamentary confirmation</Text>
+                </View>
+                {selectedType === type ? <MaterialCommunityIcons name="check-circle" size={18} color={meta.color} /> : null}
               </View>
-              <View style={{ flex: 1, gap: 4 }}>
-                <Text style={[styles.measureLabel, m.selected && { color: typeInfo.color }]}>{m.label}</Text>
-                <Text style={styles.measureDesc}>{m.description}</Text>
-                <View style={styles.measureStats}>
-                  <View style={[styles.measureStat, { backgroundColor: m.constitutionalRisk > 70 ? Colors.error + '22' : m.constitutionalRisk > 40 ? Colors.warning + '22' : Colors.success + '22' }]}>
-                    <MaterialCommunityIcons name="scale-balance" size={10} color={m.constitutionalRisk > 70 ? Colors.error : m.constitutionalRisk > 40 ? Colors.warning : Colors.success} />
-                    <Text style={[styles.measureStatText, { color: m.constitutionalRisk > 70 ? Colors.error : m.constitutionalRisk > 40 ? Colors.warning : Colors.success }]}>Risk: {m.constitutionalRisk}%</Text>
+              <Text style={styles.typeCardDesc}>{meta.description}</Text>
+              <View style={[styles.thresholdNote, { borderColor: meta.color + '33', backgroundColor: meta.color + '08' }]}>
+                <MaterialCommunityIcons name="gavel" size={11} color={meta.color} />
+                <Text style={[styles.thresholdNoteText, { color: meta.color }]}>Legal threshold: {meta.legalThreshold}</Text>
+              </View>
+              <Text style={styles.triggersLabel}>Typical triggers:</Text>
+              <View style={styles.triggerPills}>
+                {meta.triggers.map(t => (
+                  <View key={t} style={[styles.triggerPill, { backgroundColor: meta.color + '11', borderColor: meta.color + '33' }]}>
+                    <Text style={[styles.triggerPillText, { color: meta.color }]}>{t}</Text>
                   </View>
-                  <View style={[styles.measureStat, { backgroundColor: Colors.success + '22' }]}>
-                    <MaterialCommunityIcons name="check-circle" size={10} color={Colors.success} />
-                    <Text style={[styles.measureStatText, { color: Colors.success }]}>Effectiveness: {m.effectiveness}%</Text>
-                  </View>
-                  <View style={[styles.measureStat, { backgroundColor: m.approvalImpact > 0 ? Colors.success + '22' : Colors.error + '22' }]}>
-                    <MaterialCommunityIcons name="thumb-up" size={10} color={m.approvalImpact > 0 ? Colors.success : Colors.error} />
-                    <Text style={[styles.measureStatText, { color: m.approvalImpact > 0 ? Colors.success : Colors.error }]}>Approval: {m.approvalImpact}%</Text>
-                  </View>
-                </View>
-                <View style={[styles.charterNote, { borderColor: Colors.warning + '33' }]}>
-                  <MaterialCommunityIcons name="book-open" size={10} color={Colors.warning} />
-                  <Text style={styles.charterNoteText}>Charter concern: {m.charter}</Text>
-                </View>
+                ))}
               </View>
             </Pressable>
           ))}
 
-          <Pressable onPress={handleInvokeAct} disabled={selectedMeasures.length === 0} style={({ pressed }) => [styles.primaryBtn, { backgroundColor: typeInfo.color }, selectedMeasures.length === 0 && { opacity: 0.4 }, pressed && { opacity: 0.85 }]}>
-            <MaterialCommunityIcons name="gavel" size={18} color="#fff" />
-            <Text style={styles.primaryBtnText}>INVOKE EMERGENCIES ACT ({selectedMeasures.length} measures)</Text>
-          </Pressable>
-        </ScrollView>
-      </View>
-    );
-  }
+          {/* Step 2: Orders & Regulations */}
+          {selectedType ? (
+            <>
+              <Text style={styles.sectionLabel}>STEP 2 — TOGGLE ORDERS & REGULATIONS</Text>
+              <Text style={styles.sectionNote}>Enable only the measures strictly necessary for dealing with the emergency. Each measure must satisfy the Section 1 Charter proportionality test.</Text>
 
-  // ── INVOKED — ACTIVE EMERGENCY ────────────────────────────────────────────────
-  if (phase === 'invoked') {
-    const highRiskMeasures = selectedMeasures.filter(m => m.constitutionalRisk > 70);
-    return (
-      <View style={[styles.container, { paddingTop: insets.top }]}>
-        <View style={[styles.crisisHeader, { borderBottomColor: Colors.error + '44', backgroundColor: Colors.error + '08' }]}>
-          <View style={styles.liveIndicator}>
-            <View style={styles.liveDot} />
-            <Text style={styles.liveText}>EMERGENCIES ACT ACTIVE</Text>
-          </View>
-        </View>
-        <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 100 }]} showsVerticalScrollIndicator={false}>
-          {/* Status panel */}
-          <View style={[styles.actStatusCard, { borderColor: Colors.error + '44' }]}>
-            <View style={styles.actStatusRow}>
-              <MaterialCommunityIcons name="alert" size={20} color={Colors.error} />
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.actStatusTitle, { color: Colors.error }]}>Emergencies Act — In Force</Text>
-                <Text style={styles.actStatusSub}>{typeInfo.label} · {selectedMeasures.length} measures active · Week {weeksActive}</Text>
-              </View>
-              <Pressable onPress={() => showAlert('Lift Act?', 'Lifting the Act immediately removes all emergency measures. Parliament must be notified.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Lift Act', onPress: () => transitionPhase('inquiry') }])} style={[styles.liftBtn]}>
-                <Text style={styles.liftBtnText}>Lift Act</Text>
-              </Pressable>
-            </View>
-            <View style={styles.activeMeasuresList}>
-              {selectedMeasures.map(m => (
-                <View key={m.id} style={styles.activeMeasureItem}>
-                  <MaterialCommunityIcons name="check-circle" size={12} color={typeInfo.color} />
-                  <Text style={styles.activeMeasureText}>{m.label}</Text>
+              {/* Risk meter */}
+              {selectedOrders.length > 0 ? (
+                <View style={[styles.riskMeter, { borderColor: avgRisk > 70 ? Colors.error + '44' : avgRisk > 40 ? Colors.warning + '44' : Colors.success + '44' }]}>
+                  <View style={styles.riskMeterRow}>
+                    <Text style={styles.riskMeterLabel}>CONSTITUTIONAL RISK</Text>
+                    <Text style={[styles.riskMeterValue, { color: avgRisk > 70 ? Colors.error : avgRisk > 40 ? Colors.warning : Colors.success }]}>{avgRisk}%</Text>
+                  </View>
+                  <View style={styles.riskBar}>
+                    <View style={[styles.riskBarFill, { flex: avgRisk, backgroundColor: avgRisk > 70 ? Colors.error : avgRisk > 40 ? Colors.warning : Colors.success }]} />
+                    <View style={{ flex: 100 - avgRisk }} />
+                  </View>
+                  <Text style={styles.riskMeterNote}>
+                    {selectedOrders.length} order{selectedOrders.length > 1 ? 's' : ''} enabled · Approval impact: {totalApprovalImpact}% · {avgRisk > 70 ? 'High-risk measures will face immediate Charter challenges' : 'Risk is within acceptable parliamentary range'}
+                  </Text>
+                </View>
+              ) : null}
+
+              {typeOrders.map(order => (
+                <View key={order.id} style={[styles.orderCard, order.enabled && { borderColor: typeInfo!.color + '55', backgroundColor: typeInfo!.color + '06' }]}>
+                  <View style={styles.orderCardRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.orderLabel, order.enabled && { color: typeInfo!.color }]}>{order.label}</Text>
+                      <Text style={styles.orderDesc}>{order.description}</Text>
+                      {order.charterSection ? (
+                        <View style={styles.charterNote}>
+                          <MaterialCommunityIcons name="book-open" size={10} color={Colors.warning} />
+                          <Text style={styles.charterNoteText}>Charter concern: {order.charterSection}</Text>
+                        </View>
+                      ) : null}
+                      <View style={styles.orderStats}>
+                        <View style={[styles.orderStat, { backgroundColor: order.constitutionalRisk > 70 ? Colors.error + '22' : order.constitutionalRisk > 40 ? Colors.warning + '22' : Colors.success + '22' }]}>
+                          <Text style={[styles.orderStatText, { color: order.constitutionalRisk > 70 ? Colors.error : order.constitutionalRisk > 40 ? Colors.warning : Colors.success }]}>Risk: {order.constitutionalRisk}%</Text>
+                        </View>
+                        <View style={[styles.orderStat, { backgroundColor: order.approvalImpact > 0 ? Colors.success + '22' : Colors.error + '22' }]}>
+                          <Text style={[styles.orderStatText, { color: order.approvalImpact > 0 ? Colors.success : Colors.error }]}>Approval: {order.approvalImpact}%</Text>
+                        </View>
+                      </View>
+                    </View>
+                    <Switch
+                      value={order.enabled}
+                      onValueChange={() => toggleOrder(order.id)}
+                      trackColor={{ false: Colors.surfaceBorder, true: typeInfo!.color + '66' }}
+                      thumbColor={order.enabled ? typeInfo!.color : Colors.textMuted}
+                    />
+                  </View>
                 </View>
               ))}
-            </View>
-          </View>
 
-          {/* Court challenge alert for high-risk measures */}
-          {highRiskMeasures.length > 0 ? (
-            <View style={[styles.courtAlert, { borderColor: Colors.warning + '55' }]}>
-              <MaterialCommunityIcons name="gavel" size={16} color={Colors.warning} />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.courtAlertTitle}>Charter Challenges Filed Automatically</Text>
-                <Text style={styles.courtAlertDesc}>{highRiskMeasures.length} high-risk measure{highRiskMeasures.length > 1 ? 's' : ''} triggered immediate legal challenges: {highRiskMeasures.map(m => m.label).join(', ')}. The Attorney General must appear before the Supreme Court.</Text>
-              </View>
-              <Pressable onPress={async () => { await fetchCourtQuestions(); transitionPhase('court_challenge'); }} style={[styles.courtBtn, loadingAI && { opacity: 0.5 }]} disabled={loadingAI}>
-                <Text style={styles.courtBtnText}>{loadingAI ? 'Loading...' : 'Defend'}</Text>
-              </Pressable>
-            </View>
+              {typeOrders.length === 0 ? (
+                <View style={styles.noOrdersNote}>
+                  <MaterialCommunityIcons name="information" size={14} color={Colors.textMuted} />
+                  <Text style={styles.noOrdersText}>No specific orders available for this emergency type.</Text>
+                </View>
+              ) : null}
+            </>
           ) : null}
 
-          {/* Opposition attacks */}
-          <Text style={styles.sectionLabel}>OPPOSITION ATTACKS</Text>
-          {oppositionAttacks.map((attack, idx) => {
-            const intensityColor = attack.intensity === 'scathing' ? Colors.error : attack.intensity === 'fierce' ? Colors.warning : Colors.info;
-            return (
-              <View key={idx} style={[styles.attackCard, { borderColor: intensityColor + '44' }]}>
-                <View style={styles.attackHeader}>
-                  <MaterialCommunityIcons name="account-voice" size={14} color={intensityColor} />
-                  <Text style={[styles.attackLeader, { color: intensityColor }]}>{attack.leaderName} ({attack.partyName})</Text>
-                  <View style={[styles.intensityBadge, { backgroundColor: intensityColor + '22' }]}>
-                    <Text style={[styles.intensityText, { color: intensityColor }]}>{attack.intensity.toUpperCase()}</Text>
-                  </View>
-                </View>
-                <Text style={styles.attackText}>"{attack.attack}"</Text>
-              </View>
-            );
-          })}
-
-          {/* Media stories */}
-          <Text style={styles.sectionLabel}>MEDIA COVERAGE</Text>
-          {mediaStories.map((story, idx) => {
-            const sentColor = story.sentiment === 'positive' ? Colors.success : story.sentiment === 'negative' ? Colors.error : Colors.textSecondary;
-            return (
-              <View key={idx} style={styles.mediaStoryCard}>
-                <View style={styles.mediaStoryHeader}>
-                  <MaterialCommunityIcons name="newspaper" size={13} color={sentColor} />
-                  <Text style={[styles.mediaStoryOutlet, { color: sentColor }]}>{story.outlet}</Text>
-                  <View style={[styles.sentBadge, { backgroundColor: sentColor + '22' }]}>
-                    <Text style={[styles.sentBadgeText, { color: sentColor }]}>{story.sentiment.toUpperCase()}</Text>
-                  </View>
-                </View>
-                <Text style={styles.mediaStoryHeadline}>{story.headline}</Text>
-              </View>
-            );
-          })}
-
-          {/* PM response */}
-          <View style={styles.pmResponseSection}>
-            <Text style={styles.sectionLabel}>PRIME MINISTER'S STATEMENT TO PARLIAMENT</Text>
-            <TextInput
-              style={styles.pgResponseInput}
-              multiline
-              placeholder="Issue a formal statement to Parliament and the Canadian public justifying the invocation. Address the specific emergency, the measures being taken, and your commitment to lifting the Act as soon as possible..."
-              placeholderTextColor={Colors.textMuted}
-              value={pgResponse}
-              onChangeText={setPgResponse}
-              textAlignVertical="top"
-            />
-            <Pressable onPress={() => { if (pgResponse.trim()) { issuePressStatement(pgResponse); showAlert('Statement Issued', 'Your parliamentary statement has been issued. Media coverage updated.'); } }} disabled={!pgResponse.trim()} style={({ pressed }) => [styles.primaryBtn, { backgroundColor: partyColor }, !pgResponse.trim() && { opacity: 0.4 }, pressed && { opacity: 0.85 }]}>
-              <MaterialCommunityIcons name="send" size={16} color="#fff" />
-              <Text style={styles.primaryBtnText}>Issue Statement to Parliament</Text>
-            </Pressable>
-          </View>
-
-          <Pressable onPress={() => transitionPhase('inquiry')} style={({ pressed }) => [styles.primaryBtn, { backgroundColor: Colors.warning }, pressed && { opacity: 0.85 }]}>
-            <MaterialCommunityIcons name="gavel" size={18} color="#fff" />
-            <Text style={styles.primaryBtnText}>Lift the Emergencies Act — Begin Public Inquiry</Text>
-          </Pressable>
-        </ScrollView>
-      </View>
-    );
-  }
-
-  // ── COURT CHALLENGE ───────────────────────────────────────────────────────────
-  if (phase === 'court_challenge') {
-    const currentQ = aiQuestions[agCurrentQ];
-    const hearingDone = agAnswers.length >= aiQuestions.length;
-    return (
-      <KeyboardAvoidingView style={[styles.container, { paddingTop: insets.top }]} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-        <View style={[styles.header, { borderBottomColor: Colors.gold + '44' }]}>
-          <MaterialCommunityIcons name="gavel" size={18} color={Colors.gold} />
-          <Text style={styles.headerTitle}>Supreme Court Challenge</Text>
-          {!hearingDone ? <Text style={styles.headerSub}>Q{agCurrentQ + 1}/{aiQuestions.length}</Text> : null}
-        </View>
-        <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 40 }]} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-          <View style={[styles.courtContextCard, { borderColor: Colors.gold + '33' }]}>
-            <MaterialCommunityIcons name="scale-balance" size={16} color={Colors.gold} />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.courtContextTitle}>Emergency Measures Charter Challenge</Text>
-              <Text style={styles.courtContextDesc}>The Canadian Civil Liberties Association and provinces have filed an emergency constitutional challenge. The Attorney General must defend the government's measures before the Supreme Court of Canada.</Text>
-            </View>
-          </View>
-          {hearingDone ? (
-            <View style={styles.hearingDoneCard}>
-              <MaterialCommunityIcons name="check-decagram" size={48} color={Colors.success} />
-              <Text style={styles.hearingDoneTitle}>Hearing Complete</Text>
-              <Text style={styles.hearingDoneDesc}>The Court will rule next week. Return to the emergency dashboard.</Text>
-              <Pressable onPress={() => transitionPhase('invoked')} style={({ pressed }) => [styles.primaryBtn, { backgroundColor: partyColor }, pressed && { opacity: 0.85 }]}>
-                <Text style={styles.primaryBtnText}>Return to Emergency Dashboard</Text>
-              </Pressable>
-            </View>
-          ) : currentQ ? (
+          {/* Step 3: Parliamentary Safeguards */}
+          {selectedType ? (
             <>
-              <View style={styles.questionProgress}>
-                {aiQuestions.map((_, idx) => (
-                  <View key={idx} style={[styles.questionDot, agAnswers.length > idx && { backgroundColor: Colors.success }, agCurrentQ === idx && { backgroundColor: Colors.gold }]} />
-                ))}
-              </View>
-              <View style={[styles.courtQuestionCard, { borderColor: Colors.gold + '33' }]}>
-                <View style={styles.judgeRow}>
-                  <MaterialCommunityIcons name="scale-balance" size={14} color={Colors.gold} />
-                  <Text style={styles.judgeText}>Chief Justice of Canada</Text>
-                  <View style={styles.topicPill}>
-                    <Text style={styles.topicPillText}>{currentQ.topic}</Text>
+              <Text style={styles.sectionLabel}>STEP 3 — PARLIAMENTARY SAFEGUARDS</Text>
+              <Text style={styles.sectionNote}>These safeguards are legally required under the Emergencies Act. Mark each as completed before invoking the Act.</Text>
+              {safeguards.map(s => (
+                <Pressable key={s.id} onPress={() => toggleSafeguard(s.id)} style={({ pressed }) => [styles.safeguardCard, s.completed && { borderColor: Colors.success + '44', backgroundColor: Colors.success + '06' }, pressed && { opacity: 0.85 }]}>
+                  <View style={[styles.safeguardCheck, s.completed && { backgroundColor: Colors.success, borderColor: Colors.success }]}>
+                    {s.completed ? <MaterialCommunityIcons name="check" size={12} color="#fff" /> : null}
                   </View>
-                </View>
-                <Text style={styles.courtQuestionText}>{currentQ.question}</Text>
-              </View>
-              <View style={styles.agAnswerSection}>
-                <Text style={styles.sectionLabel}>ATTORNEY GENERAL'S RESPONSE:</Text>
-                <TextInput
-                  style={styles.agAnswerInput}
-                  multiline
-                  placeholder="Defend the emergency measures on constitutional grounds. Address the necessity, proportionality, and limited duration of each measure. Reference the Section 1 reasonable limits clause..."
-                  placeholderTextColor={Colors.textMuted}
-                  value={agAnswer}
-                  onChangeText={setAgAnswer}
-                  textAlignVertical="top"
-                />
-                <Text style={styles.wordCount}>{agAnswer.trim().split(/\s+/).filter(Boolean).length} words</Text>
-                <Pressable onPress={handleAgAnswer} disabled={!agAnswer.trim()} style={({ pressed }) => [styles.primaryBtn, { backgroundColor: partyColor }, !agAnswer.trim() && { opacity: 0.4 }, pressed && { opacity: 0.85 }]}>
-                  <MaterialCommunityIcons name="gavel" size={16} color="#fff" />
-                  <Text style={styles.primaryBtnText}>{agCurrentQ < aiQuestions.length - 1 ? 'Submit — Next Question' : 'Final Response'}</Text>
+                  <View style={{ flex: 1 }}>
+                    <View style={styles.safeguardLabelRow}>
+                      <Text style={[styles.safeguardLabel, s.completed && { color: Colors.success }]}>{s.label}</Text>
+                      {s.required ? (
+                        <View style={styles.requiredBadge}>
+                          <Text style={styles.requiredBadgeText}>REQUIRED</Text>
+                        </View>
+                      ) : (
+                        <View style={styles.optionalBadge}>
+                          <Text style={styles.optionalBadgeText}>RECOMMENDED</Text>
+                        </View>
+                      )}
+                    </View>
+                    <Text style={styles.safeguardDesc}>{s.description}</Text>
+                  </View>
                 </Pressable>
-              </View>
+              ))}
+              {requiredSafeguardsCompleted < totalRequired ? (
+                <View style={styles.safeguardWarning}>
+                  <MaterialCommunityIcons name="alert-circle" size={13} color={Colors.warning} />
+                  <Text style={styles.safeguardWarningText}>{totalRequired - requiredSafeguardsCompleted} required safeguard(s) not yet completed. The Act can still be invoked in an emergency, but legal challenges are more likely.</Text>
+                </View>
+              ) : (
+                <View style={styles.safeguardReady}>
+                  <MaterialCommunityIcons name="check-circle" size={13} color={Colors.success} />
+                  <Text style={styles.safeguardReadyText}>All required parliamentary safeguards completed.</Text>
+                </View>
+              )}
             </>
+          ) : null}
+
+          {/* Step 4: Justification */}
+          {selectedType ? (
+            <>
+              <Text style={styles.sectionLabel}>STEP 4 — FORMAL JUSTIFICATION</Text>
+              <Text style={styles.sectionNote}>Provide a formal statement explaining how this situation meets the legal threshold under Section 3 of the Emergencies Act. This will be tabled in Parliament.</Text>
+              <TextInput
+                style={styles.justificationInput}
+                multiline
+                placeholder={`Describe the urgent and critical situation, why it cannot be dealt with under any other federal or provincial law, and how it endangers the lives, health, or safety of Canadians or threatens Canada's sovereignty or territorial integrity. Reference specific events, timelines, and the measures being taken and why they are proportionate and necessary...`}
+                placeholderTextColor={Colors.textMuted}
+                value={justification}
+                onChangeText={setJustification}
+                textAlignVertical="top"
+              />
+              <Text style={styles.wordCount}>{justification.trim().split(/\s+/).filter(Boolean).length} words (minimum 20 required)</Text>
+            </>
+          ) : null}
+
+          {/* Invoke button */}
+          {selectedType ? (
+            <Pressable
+              onPress={handleInvokeAct}
+              disabled={selectedOrders.length === 0 || !justification.trim() || justification.trim().split(/\s+/).filter(Boolean).length < 20}
+              style={({ pressed }) => [
+                styles.invokeBtn,
+                { backgroundColor: typeInfo?.color || Colors.error },
+                (selectedOrders.length === 0 || justification.trim().split(/\s+/).filter(Boolean).length < 20) && { opacity: 0.4 },
+                pressed && { opacity: 0.85 },
+              ]}
+            >
+              <MaterialCommunityIcons name="gavel" size={20} color="#fff" />
+              <Text style={styles.invokeBtnText}>INVOKE THE EMERGENCIES ACT</Text>
+            </Pressable>
           ) : null}
         </ScrollView>
       </KeyboardAvoidingView>
     );
   }
 
-  // ── INQUIRY / LIFTED ──────────────────────────────────────────────────────────
-  if (phase === 'inquiry' || phase === 'lifted') {
-    const resultColor = courtChallengeResult === 'upheld' ? Colors.success : courtChallengeResult === 'struck_down' ? Colors.error : Colors.warning;
+  // ── INVOKED ──────────────────────────────────────────────────────────────────
+  if (actStatus === 'invoked') {
+    const typeData = EMERGENCY_TYPES[selectedType!];
+    return (
+      <View style={[styles.container, { paddingTop: insets.top }]}>
+        <View style={[styles.invokedHeader, { borderBottomColor: typeData.color + '44' }]}>
+          <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
+            <MaterialCommunityIcons name="alert-octagram" size={18} color={typeData.color} />
+          </Animated.View>
+          <Text style={[styles.invokedHeaderText, { color: typeData.color }]}>EMERGENCIES ACT — IN FORCE</Text>
+          <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
+            <MaterialCommunityIcons name="alert-octagram" size={18} color={typeData.color} />
+          </Animated.View>
+        </View>
+
+        <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 40 }]} showsVerticalScrollIndicator={false}>
+          {/* Status */}
+          <View style={[styles.statusCard, { borderColor: typeData.color + '44', backgroundColor: typeData.color + '08' }]}>
+            <MaterialCommunityIcons name={typeData.icon as any} size={32} color={typeData.color} />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.statusTitle, { color: typeData.color }]}>{typeData.label}</Text>
+              <Text style={styles.statusSub}>Week {weeksActive} of maximum {typeData.expiryDays / 7} weeks · {selectedOrders.length} orders in effect</Text>
+            </View>
+          </View>
+
+          {/* Active orders */}
+          <Text style={styles.sectionLabel}>ACTIVE ORDERS & REGULATIONS</Text>
+          {selectedOrders.map(o => (
+            <View key={o.id} style={styles.activeOrderItem}>
+              <MaterialCommunityIcons name="check-circle" size={13} color={typeData.color} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.activeOrderLabel}>{o.label}</Text>
+                {o.charterSection ? <Text style={styles.activeOrderCharter}>{o.charterSection}</Text> : null}
+              </View>
+              {o.constitutionalRisk > 70 ? <View style={styles.challengeBadge}><Text style={styles.challengeBadgeText}>CHALLENGED</Text></View> : null}
+            </View>
+          ))}
+
+          {/* Parliamentary review */}
+          <View style={styles.parlamentaryReviewCard}>
+            <MaterialCommunityIcons name="domain" size={16} color={Colors.gold} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.parliamentaryReviewTitle}>Parliamentary Review Required</Text>
+              <Text style={styles.parliamentaryReviewDesc}>Parliament must confirm this declaration. Either the House or Senate can revoke it at any time. A Special Joint Parliamentary Committee will review all emergency measures.</Text>
+            </View>
+          </View>
+
+          {!parliamentVoteResult ? (
+            <Pressable onPress={handleParliamentVote} style={({ pressed }) => [styles.parliamentVoteBtn, { backgroundColor: Colors.gold + '22', borderColor: Colors.gold + '55' }, pressed && { opacity: 0.85 }]}>
+              <MaterialCommunityIcons name="vote" size={16} color={Colors.gold} />
+              <Text style={[styles.parliamentVoteBtnText, { color: Colors.gold }]}>Conduct Parliamentary Confirmation Vote</Text>
+            </Pressable>
+          ) : (
+            <View style={[styles.voteResultCard, { borderColor: (parliamentVoteResult.house && parliamentVoteResult.senate ? Colors.success : Colors.error) + '55' }]}>
+              <Text style={styles.sectionLabel}>PARLIAMENTARY VOTE RESULT</Text>
+              <View style={styles.voteResultRow}>
+                <MaterialCommunityIcons name={parliamentVoteResult.house ? 'check-circle' : 'close-circle'} size={14} color={parliamentVoteResult.house ? Colors.success : Colors.error} />
+                <Text style={[styles.voteResultText, { color: parliamentVoteResult.house ? Colors.success : Colors.error }]}>
+                  House of Commons: {parliamentVoteResult.house ? 'CONFIRMED' : 'REVOKED'}
+                </Text>
+              </View>
+              <View style={styles.voteResultRow}>
+                <MaterialCommunityIcons name={parliamentVoteResult.senate ? 'check-circle' : 'close-circle'} size={14} color={parliamentVoteResult.senate ? Colors.success : Colors.error} />
+                <Text style={[styles.voteResultText, { color: parliamentVoteResult.senate ? Colors.success : Colors.error }]}>
+                  Senate: {parliamentVoteResult.senate ? 'CONFIRMED' : 'REVOKED'}
+                </Text>
+              </View>
+            </View>
+          )}
+
+          <Pressable onPress={handleLiftAct} style={({ pressed }) => [styles.liftBtn, pressed && { opacity: 0.85 }]}>
+            <MaterialCommunityIcons name="check-circle" size={16} color={Colors.warning} />
+            <Text style={styles.liftBtnText}>Lift the Emergencies Act</Text>
+          </Pressable>
+        </ScrollView>
+      </View>
+    );
+  }
+
+  // ── LIFTED ───────────────────────────────────────────────────────────────────
+  if (actStatus === 'lifted') {
+    const typeData = EMERGENCY_TYPES[selectedType!];
     return (
       <View style={[styles.container, { paddingTop: insets.top }]}>
         <View style={styles.header}>
-          <Pressable onPress={() => router.back()} style={styles.backBtn}><MaterialCommunityIcons name="close" size={22} color={Colors.textSecondary} /></Pressable>
+          <Pressable onPress={() => router.back()} style={styles.iconBtn}>
+            <MaterialCommunityIcons name="close" size={22} color={Colors.textSecondary} />
+          </Pressable>
           <Text style={styles.headerTitle}>Emergency Concluded</Text>
           <View style={{ width: 40 }} />
         </View>
         <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 40 }]} showsVerticalScrollIndicator={false}>
-          <View style={[styles.conclusionCard, { borderColor: partyColor + '44' }]}>
-            <MaterialCommunityIcons name="check-circle" size={48} color={partyColor} />
-            <Text style={[styles.conclusionTitle, { color: partyColor }]}>Emergencies Act Lifted</Text>
-            <Text style={styles.conclusionDesc}>All emergency measures have been revoked. A mandatory public inquiry will examine the government's use of the Emergencies Act over the next 6 months.</Text>
+          <View style={styles.liftedCard}>
+            <MaterialCommunityIcons name="check-circle" size={56} color={Colors.success} />
+            <Text style={styles.liftedTitle}>Emergencies Act Lifted</Text>
+            <Text style={styles.liftedDesc}>All emergency orders have ceased to have effect. The {typeData.label} declaration has been revoked.</Text>
           </View>
-
-          {courtChallengeResult ? (
-            <View style={[styles.courtResultCard, { borderColor: resultColor + '55' }]}>
-              <MaterialCommunityIcons name={courtChallengeResult === 'upheld' ? 'check-decagram' : courtChallengeResult === 'struck_down' ? 'close-circle' : 'alert-decagram'} size={32} color={resultColor} />
-              <Text style={[styles.courtResultTitle, { color: resultColor }]}>
-                {courtChallengeResult === 'upheld' ? 'Supreme Court: Emergency Measures Upheld' : courtChallengeResult === 'struck_down' ? 'Supreme Court: Measures Struck Down' : 'Partial Ruling — Some Measures Invalidated'}
-              </Text>
-              <Text style={styles.courtResultDesc}>
-                {courtChallengeResult === 'upheld' ? 'The Supreme Court found the emergency measures proportionate and constitutionally sound under Section 1 of the Charter.' : courtChallengeResult === 'struck_down' ? 'The Supreme Court struck down the emergency measures as unconstitutional. The government must compensate affected Canadians.' : 'A mixed ruling — some measures were upheld, others struck down. Targeted compensation required.'}
-              </Text>
-            </View>
-          ) : null}
-
-          <View style={styles.inquiryOutcomes}>
-            <Text style={styles.sectionLabel}>PUBLIC INQUIRY FINDINGS</Text>
+          <View style={styles.requiredActionsCard}>
+            <Text style={styles.sectionLabel}>REQUIRED NEXT STEPS (Emergencies Act, s. 62)</Text>
             {[
-              `The Public Inquiry Commission will examine ${selectedMeasures.length} emergency measures`,
-              courtChallengeResult === 'struck_down' ? 'Government ordered to pay legal costs and Charter damages' : 'Government counsel of record acknowledged proportionality requirements',
-              `Approval rating impact: ${totalApprovalImpact}% from emergency period`,
-              'Parliament will receive a full report within 6 months',
-              'Opposition parties will have full access to classified briefings during the inquiry',
+              'Initiate a public inquiry within 60 days into the circumstances of the emergency and use of emergency powers',
+              'Table a full report to Parliament on all orders and regulations made during the emergency',
+              'Provide compensation to persons whose property was requisitioned or whose rights were affected by emergency orders',
+              'Dissolve the Special Joint Parliamentary Review Committee',
             ].map((item, idx) => (
-              <View key={idx} style={styles.inquiryItem}>
+              <View key={idx} style={styles.requiredActionRow}>
                 <MaterialCommunityIcons name="information" size={12} color={Colors.info} />
-                <Text style={styles.inquiryText}>{item}</Text>
+                <Text style={styles.requiredActionText}>{item}</Text>
               </View>
             ))}
           </View>
-
-          <Pressable onPress={() => router.replace('/(tabs)')} style={({ pressed }) => [styles.primaryBtn, { backgroundColor: partyColor }, pressed && { opacity: 0.85 }]}>
-            <Text style={styles.primaryBtnText}>Return to Parliament</Text>
+          <Pressable onPress={() => router.replace('/(tabs)')} style={({ pressed }) => [styles.invokeBtn, { backgroundColor: partyColor }, pressed && { opacity: 0.85 }]}>
+            <Text style={styles.invokeBtnText}>Return to Parliament</Text>
           </Pressable>
         </ScrollView>
       </View>
@@ -697,33 +736,31 @@ export default function EmergenciesActScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
   header: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingHorizontal: Spacing.md, paddingVertical: Spacing.md, borderBottomWidth: 1, borderBottomColor: Colors.surfaceBorder, backgroundColor: Colors.surface },
+  iconBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
   headerTitle: { flex: 1, fontSize: FontSize.lg, fontWeight: FontWeight.bold, color: Colors.textPrimary, textAlign: 'center' },
   headerSub: { fontSize: FontSize.xs, color: Colors.textSecondary },
-  backBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
-  crisisHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.sm, paddingVertical: Spacing.md, borderBottomWidth: 1, backgroundColor: Colors.error + '08' },
-  crisisHeaderText: { fontSize: FontSize.lg, fontWeight: FontWeight.extrabold, letterSpacing: 1.5 },
+  pmBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: Radius.sm, borderWidth: 1 },
+  pmBadgeText: { fontSize: FontSize.xs, fontWeight: FontWeight.bold },
   content: { padding: Spacing.md, gap: Spacing.md },
   sectionLabel: { fontSize: FontSize.xs, fontWeight: FontWeight.bold, color: Colors.textMuted, letterSpacing: 1.5 },
   sectionNote: { fontSize: FontSize.xs, color: Colors.textMuted, lineHeight: 18 },
-  primaryBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: Spacing.md, borderRadius: Radius.md },
-  primaryBtnText: { fontSize: FontSize.base, fontWeight: FontWeight.bold, color: '#fff' },
-  secondaryBtn: { alignItems: 'center', justifyContent: 'center', paddingVertical: Spacing.sm, borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.surfaceBorder },
-  secondaryBtnText: { fontSize: FontSize.sm, color: Colors.textSecondary, fontWeight: FontWeight.medium },
-  // Crisis alert
-  crisisCard: { borderRadius: Radius.xl, borderWidth: 1, padding: Spacing.xl, alignItems: 'center', gap: Spacing.sm },
-  crisisTypeLabel: { fontSize: FontSize.xl, fontWeight: FontWeight.extrabold, textAlign: 'center', letterSpacing: 1 },
-  crisisDesc: { fontSize: FontSize.sm, color: Colors.textSecondary, textAlign: 'center', lineHeight: 22 },
-  thresholdNote: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, borderRadius: Radius.sm, padding: 8, borderWidth: 1, backgroundColor: Colors.surfaceElevated },
-  thresholdNoteText: { flex: 1, fontSize: FontSize.xs, lineHeight: 17, fontStyle: 'italic' },
-  typeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  typeCard: { width: '45%', alignItems: 'center', gap: 6, backgroundColor: Colors.card, borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.surfaceBorder, padding: Spacing.sm },
-  typeCardLabel: { fontSize: 10, fontWeight: FontWeight.semibold, color: Colors.textMuted, textAlign: 'center' },
-  briefingCard: { backgroundColor: Colors.card, borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.surfaceBorder, padding: Spacing.md, gap: 8 },
-  briefingRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
-  briefingSource: { fontWeight: FontWeight.bold, color: Colors.textPrimary },
-  briefingText: { flex: 1, fontSize: FontSize.xs, color: Colors.textSecondary, lineHeight: 18 },
-  responseOptions: { gap: 8 },
-  // Deliberate
+  // Legal context
+  legalContextCard: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.sm, backgroundColor: Colors.gold + '0D', borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.gold + '33', padding: Spacing.md },
+  legalContextTitle: { fontSize: FontSize.sm, fontWeight: FontWeight.bold, color: Colors.gold, marginBottom: 4 },
+  legalContextText: { fontSize: FontSize.xs, color: Colors.textSecondary, lineHeight: 18 },
+  // Type cards
+  typeCard: { backgroundColor: Colors.card, borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.surfaceBorder, padding: Spacing.md, gap: 8 },
+  typeCardHeader: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  typeCardTitle: { fontSize: FontSize.sm, fontWeight: FontWeight.bold, color: Colors.textPrimary },
+  typeCardExpiry: { fontSize: FontSize.xs, color: Colors.textMuted },
+  typeCardDesc: { fontSize: FontSize.xs, color: Colors.textSecondary, lineHeight: 17 },
+  thresholdNote: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, borderRadius: Radius.sm, padding: 7, borderWidth: 1 },
+  thresholdNoteText: { flex: 1, fontSize: FontSize.xs, lineHeight: 16, fontStyle: 'italic' },
+  triggersLabel: { fontSize: 10, fontWeight: FontWeight.bold, color: Colors.textMuted, letterSpacing: 0.5 },
+  triggerPills: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  triggerPill: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: Radius.full, borderWidth: 1 },
+  triggerPillText: { fontSize: 9, fontWeight: FontWeight.medium },
+  // Risk meter
   riskMeter: { backgroundColor: Colors.card, borderRadius: Radius.md, borderWidth: 1, padding: Spacing.md, gap: 8 },
   riskMeterRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   riskMeterLabel: { fontSize: FontSize.xs, fontWeight: FontWeight.bold, color: Colors.textMuted, letterSpacing: 1 },
@@ -731,77 +768,67 @@ const styles = StyleSheet.create({
   riskBar: { flexDirection: 'row', height: 8, backgroundColor: Colors.surfaceBorder, borderRadius: 4, overflow: 'hidden' },
   riskBarFill: { minWidth: 4, borderRadius: 4 },
   riskMeterNote: { fontSize: FontSize.xs, color: Colors.textMuted, lineHeight: 17 },
-  measureCard: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.sm, backgroundColor: Colors.card, borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.surfaceBorder, padding: Spacing.md },
-  measureCheck: { width: 22, height: 22, borderRadius: 4, borderWidth: 1.5, borderColor: Colors.surfaceBorder, alignItems: 'center', justifyContent: 'center', marginTop: 2 },
-  measureLabel: { fontSize: FontSize.sm, fontWeight: FontWeight.bold, color: Colors.textPrimary, marginBottom: 4 },
-  measureDesc: { fontSize: FontSize.xs, color: Colors.textSecondary, lineHeight: 17 },
-  measureStats: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  measureStat: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 7, paddingVertical: 2, borderRadius: Radius.full },
-  measureStatText: { fontSize: 9, fontWeight: FontWeight.bold },
-  charterNote: { flexDirection: 'row', alignItems: 'center', gap: 5, borderRadius: Radius.sm, padding: 5, borderWidth: 1, backgroundColor: Colors.warning + '08' },
+  // Order cards
+  orderCard: { backgroundColor: Colors.card, borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.surfaceBorder, padding: Spacing.md },
+  orderCardRow: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.sm },
+  orderLabel: { fontSize: FontSize.sm, fontWeight: FontWeight.bold, color: Colors.textPrimary, marginBottom: 4, flex: 1 },
+  orderDesc: { fontSize: FontSize.xs, color: Colors.textSecondary, lineHeight: 17 },
+  charterNote: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 6, backgroundColor: Colors.warning + '08', borderRadius: Radius.sm, padding: 5, borderWidth: 1, borderColor: Colors.warning + '33' },
   charterNoteText: { flex: 1, fontSize: 10, color: Colors.warning, lineHeight: 15 },
-  // Invoked
-  actStatusCard: { borderRadius: Radius.md, borderWidth: 1, padding: Spacing.md, gap: Spacing.sm, backgroundColor: Colors.error + '08' },
-  actStatusRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
-  actStatusTitle: { fontSize: FontSize.base, fontWeight: FontWeight.bold },
-  actStatusSub: { fontSize: FontSize.xs, color: Colors.textSecondary },
-  liftBtn: { paddingHorizontal: Spacing.md, paddingVertical: 7, borderRadius: Radius.sm, backgroundColor: Colors.warning + '22', borderWidth: 1, borderColor: Colors.warning + '44' },
-  liftBtnText: { fontSize: FontSize.xs, fontWeight: FontWeight.bold, color: Colors.warning },
-  activeMeasuresList: { gap: 4 },
-  activeMeasureItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  activeMeasureText: { fontSize: FontSize.xs, color: Colors.textSecondary },
-  courtAlert: { backgroundColor: Colors.warning + '0D', borderRadius: Radius.md, borderWidth: 1, padding: Spacing.md, gap: Spacing.sm },
-  courtAlertTitle: { fontSize: FontSize.sm, fontWeight: FontWeight.bold, color: Colors.warning },
-  courtAlertDesc: { fontSize: FontSize.xs, color: Colors.textSecondary, lineHeight: 17 },
-  courtBtn: { paddingHorizontal: Spacing.sm, paddingVertical: 7, borderRadius: Radius.sm, backgroundColor: Colors.warning, alignSelf: 'flex-start' },
-  courtBtnText: { fontSize: FontSize.xs, fontWeight: FontWeight.bold, color: '#fff' },
-  attackCard: { backgroundColor: Colors.card, borderRadius: Radius.md, borderWidth: 1, padding: Spacing.md, gap: 6 },
-  attackHeader: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  attackLeader: { flex: 1, fontSize: FontSize.xs, fontWeight: FontWeight.bold },
-  intensityBadge: { paddingHorizontal: 7, paddingVertical: 2, borderRadius: Radius.full },
-  intensityText: { fontSize: 9, fontWeight: FontWeight.extrabold, letterSpacing: 0.5 },
-  attackText: { fontSize: FontSize.xs, color: Colors.textSecondary, lineHeight: 18, fontStyle: 'italic' },
-  mediaStoryCard: { backgroundColor: Colors.card, borderRadius: Radius.sm, borderWidth: 1, borderColor: Colors.surfaceBorder, padding: Spacing.sm, gap: 6 },
-  mediaStoryHeader: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  mediaStoryOutlet: { flex: 1, fontSize: FontSize.xs, fontWeight: FontWeight.semibold },
-  sentBadge: { paddingHorizontal: 7, paddingVertical: 2, borderRadius: Radius.full },
-  sentBadgeText: { fontSize: 9, fontWeight: FontWeight.bold },
-  mediaStoryHeadline: { fontSize: FontSize.xs, color: Colors.textSecondary, lineHeight: 17, fontStyle: 'italic' },
-  pmResponseSection: { gap: 8 },
-  pgResponseInput: { backgroundColor: Colors.surfaceElevated, borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.surfaceBorder, paddingHorizontal: Spacing.md, paddingVertical: Spacing.md, fontSize: FontSize.sm, color: Colors.textPrimary, minHeight: 120, lineHeight: 22 },
-  liveIndicator: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  liveDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: Colors.error },
-  liveText: { fontSize: FontSize.sm, fontWeight: FontWeight.extrabold, color: Colors.error, letterSpacing: 1 },
-  // Court challenge
-  courtContextCard: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.sm, backgroundColor: Colors.card, borderRadius: Radius.md, borderWidth: 1, padding: Spacing.md, gap: Spacing.sm },
-  courtContextTitle: { fontSize: FontSize.sm, fontWeight: FontWeight.bold, color: Colors.gold, marginBottom: 4 },
-  courtContextDesc: { fontSize: FontSize.xs, color: Colors.textSecondary, lineHeight: 17 },
-  questionProgress: { flexDirection: 'row', alignItems: 'center', gap: 6, justifyContent: 'center' },
-  questionDot: { width: 24, height: 6, borderRadius: 3, backgroundColor: Colors.surfaceBorder },
-  courtQuestionCard: { backgroundColor: Colors.card, borderRadius: Radius.md, borderWidth: 1, padding: Spacing.md, gap: 8 },
-  judgeRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  judgeText: { flex: 1, fontSize: FontSize.xs, fontWeight: FontWeight.bold, color: Colors.gold },
-  topicPill: { backgroundColor: Colors.surfaceElevated, paddingHorizontal: 8, paddingVertical: 3, borderRadius: Radius.full, borderWidth: 1, borderColor: Colors.surfaceBorder },
-  topicPillText: { fontSize: 9, color: Colors.textMuted },
-  courtQuestionText: { fontSize: FontSize.md, fontWeight: FontWeight.semibold, color: Colors.textPrimary, lineHeight: 24 },
-  agAnswerSection: { gap: 8 },
-  agAnswerInput: { backgroundColor: Colors.surfaceElevated, borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.surfaceBorder, paddingHorizontal: Spacing.md, paddingVertical: Spacing.md, fontSize: FontSize.sm, color: Colors.textPrimary, minHeight: 130, lineHeight: 22 },
+  orderStats: { flexDirection: 'row', gap: 6, marginTop: 8 },
+  orderStat: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: Radius.full },
+  orderStatText: { fontSize: 9, fontWeight: FontWeight.bold },
+  noOrdersNote: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: Colors.surfaceElevated, borderRadius: Radius.sm, padding: Spacing.sm },
+  noOrdersText: { fontSize: FontSize.xs, color: Colors.textMuted },
+  // Safeguards
+  safeguardCard: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.sm, backgroundColor: Colors.card, borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.surfaceBorder, padding: Spacing.md },
+  safeguardCheck: { width: 22, height: 22, borderRadius: 4, borderWidth: 1.5, borderColor: Colors.surfaceBorder, alignItems: 'center', justifyContent: 'center', marginTop: 2 },
+  safeguardLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' },
+  safeguardLabel: { fontSize: FontSize.sm, fontWeight: FontWeight.bold, color: Colors.textPrimary, flex: 1 },
+  safeguardDesc: { fontSize: FontSize.xs, color: Colors.textSecondary, lineHeight: 17 },
+  requiredBadge: { backgroundColor: Colors.error + '22', paddingHorizontal: 7, paddingVertical: 2, borderRadius: Radius.full },
+  requiredBadgeText: { fontSize: 8, fontWeight: FontWeight.bold, color: Colors.error, letterSpacing: 0.5 },
+  optionalBadge: { backgroundColor: Colors.info + '22', paddingHorizontal: 7, paddingVertical: 2, borderRadius: Radius.full },
+  optionalBadgeText: { fontSize: 8, fontWeight: FontWeight.bold, color: Colors.info, letterSpacing: 0.5 },
+  safeguardWarning: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: Colors.warning + '11', borderRadius: Radius.sm, padding: Spacing.sm, borderWidth: 1, borderColor: Colors.warning + '33' },
+  safeguardWarningText: { flex: 1, fontSize: FontSize.xs, color: Colors.warning, lineHeight: 17 },
+  safeguardReady: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: Colors.success + '0D', borderRadius: Radius.sm, padding: Spacing.sm, borderWidth: 1, borderColor: Colors.success + '22' },
+  safeguardReadyText: { fontSize: FontSize.xs, color: Colors.success, fontWeight: FontWeight.medium },
+  // Justification
+  justificationInput: { backgroundColor: Colors.surfaceElevated, borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.surfaceBorder, paddingHorizontal: Spacing.md, paddingVertical: Spacing.md, fontSize: FontSize.sm, color: Colors.textPrimary, minHeight: 150, lineHeight: 22 },
   wordCount: { fontSize: FontSize.xs, color: Colors.textMuted, textAlign: 'right' },
-  hearingDoneCard: { alignItems: 'center', gap: Spacing.md, backgroundColor: Colors.card, borderRadius: Radius.lg, borderWidth: 1, borderColor: Colors.success + '44', padding: Spacing.xl },
-  hearingDoneTitle: { fontSize: FontSize.xl, fontWeight: FontWeight.bold, color: Colors.textPrimary },
-  hearingDoneDesc: { fontSize: FontSize.sm, color: Colors.textSecondary, textAlign: 'center', lineHeight: 20 },
-  // Inquiry / Lifted
-  conclusionCard: { borderRadius: Radius.xl, borderWidth: 1, padding: Spacing.xl, alignItems: 'center', gap: Spacing.sm, backgroundColor: Colors.card },
-  conclusionTitle: { fontSize: FontSize.xl, fontWeight: FontWeight.extrabold, textAlign: 'center' },
-  conclusionDesc: { fontSize: FontSize.sm, color: Colors.textSecondary, textAlign: 'center', lineHeight: 22 },
-  courtResultCard: { borderRadius: Radius.md, borderWidth: 1, padding: Spacing.md, gap: Spacing.sm, alignItems: 'center', backgroundColor: Colors.card },
-  courtResultTitle: { fontSize: FontSize.base, fontWeight: FontWeight.bold, textAlign: 'center' },
-  courtResultDesc: { fontSize: FontSize.xs, color: Colors.textSecondary, textAlign: 'center', lineHeight: 18 },
-  inquiryOutcomes: { backgroundColor: Colors.card, borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.surfaceBorder, padding: Spacing.md, gap: 8 },
-  inquiryItem: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
-  inquiryText: { flex: 1, fontSize: FontSize.xs, color: Colors.textSecondary, lineHeight: 18 },
-  // Not governing
-  notGovCard: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: Spacing.md, padding: Spacing.xl },
-  notGovTitle: { fontSize: FontSize.xl, fontWeight: FontWeight.bold, color: Colors.textSecondary },
-  notGovDesc: { fontSize: FontSize.sm, color: Colors.textMuted, textAlign: 'center', lineHeight: 22 },
+  // Invoke
+  invokeBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: Spacing.md, borderRadius: Radius.md },
+  invokeBtnText: { fontSize: FontSize.base, fontWeight: FontWeight.bold, color: '#fff' },
+  // Invoked header
+  invokedHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: Spacing.md, borderBottomWidth: 1, backgroundColor: Colors.error + '08' },
+  invokedHeaderText: { fontSize: FontSize.lg, fontWeight: FontWeight.extrabold, letterSpacing: 1.5 },
+  // Status card
+  statusCard: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, borderRadius: Radius.md, borderWidth: 1, padding: Spacing.md },
+  statusTitle: { fontSize: FontSize.base, fontWeight: FontWeight.bold },
+  statusSub: { fontSize: FontSize.xs, color: Colors.textSecondary, marginTop: 2 },
+  // Active orders
+  activeOrderItem: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: Colors.card, borderRadius: Radius.sm, borderWidth: 1, borderColor: Colors.surfaceBorder, padding: Spacing.sm },
+  activeOrderLabel: { fontSize: FontSize.xs, fontWeight: FontWeight.semibold, color: Colors.textPrimary },
+  activeOrderCharter: { fontSize: 10, color: Colors.warning, marginTop: 2 },
+  challengeBadge: { backgroundColor: Colors.error + '22', paddingHorizontal: 7, paddingVertical: 2, borderRadius: Radius.full },
+  challengeBadgeText: { fontSize: 8, fontWeight: FontWeight.bold, color: Colors.error },
+  // Parliament review
+  parlamentaryReviewCard: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.sm, backgroundColor: Colors.gold + '0D', borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.gold + '33', padding: Spacing.md },
+  parliamentaryReviewTitle: { fontSize: FontSize.sm, fontWeight: FontWeight.bold, color: Colors.gold, marginBottom: 4 },
+  parliamentaryReviewDesc: { fontSize: FontSize.xs, color: Colors.textSecondary, lineHeight: 17 },
+  parliamentVoteBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: Spacing.md, borderRadius: Radius.md, borderWidth: 1 },
+  parliamentVoteBtnText: { fontSize: FontSize.base, fontWeight: FontWeight.bold },
+  voteResultCard: { backgroundColor: Colors.card, borderRadius: Radius.md, borderWidth: 1, padding: Spacing.md, gap: 8 },
+  voteResultRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  voteResultText: { fontSize: FontSize.sm, fontWeight: FontWeight.semibold },
+  liftBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: Spacing.md, borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.warning + '55', backgroundColor: Colors.warning + '11' },
+  liftBtnText: { fontSize: FontSize.base, fontWeight: FontWeight.bold, color: Colors.warning },
+  // Lifted
+  liftedCard: { backgroundColor: Colors.card, borderRadius: Radius.xl, borderWidth: 1, borderColor: Colors.success + '44', padding: Spacing.xl, alignItems: 'center', gap: Spacing.sm },
+  liftedTitle: { fontSize: FontSize.xl, fontWeight: FontWeight.extrabold, color: Colors.textPrimary },
+  liftedDesc: { fontSize: FontSize.sm, color: Colors.textSecondary, textAlign: 'center', lineHeight: 22 },
+  requiredActionsCard: { backgroundColor: Colors.card, borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.surfaceBorder, padding: Spacing.md, gap: 10 },
+  requiredActionRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
+  requiredActionText: { flex: 1, fontSize: FontSize.xs, color: Colors.textSecondary, lineHeight: 18 },
 });
