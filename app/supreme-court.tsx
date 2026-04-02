@@ -101,6 +101,8 @@ export default function SupremeCourtScreen() {
   const [agAnswers, setAgAnswers] = useState<string[]>([]);
   const [currentQIdx, setCurrentQIdx] = useState(0);
   const [currentAnswer, setCurrentAnswer] = useState('');
+  const [useAIAG, setUseAIAG] = useState<Record<string, boolean>>({}); // per-case: true = AI AG handles
+  const [aiAGNotifications, setAIAGNotifications] = useState<{ caseId: string; message: string; week: number }[]>([]);
   const [activeView, setActiveView] = useState<'list' | 'hearing'>('list');
 
   if (!gameState) return null;
@@ -136,6 +138,35 @@ export default function SupremeCourtScreen() {
       { question: 'Critics argue this legislation is overbroad and captures innocent Canadians in its scope. What evidence supports a proportionate approach?', topic: 'Proportionality' },
       { question: `Is there a less rights-limiting alternative that would achieve the same legislative objective? Why did the government reject those alternatives?`, topic: 'Alternatives' },
     ];
+  };
+
+  const handleChooseRepresentation = (courtCase: CourtCase) => {
+    showAlert(
+      'Attorney General Representation',
+      'Choose how to handle this case:\n\n• Respond yourself: You answer 3 judicial questions directly.\n• AI Attorney General: The AG automatically defends the legislation. You receive weekly notifications on case updates.',
+      [
+        { text: 'I will respond myself', onPress: () => openHearing(courtCase) },
+        {
+          text: 'AI Attorney General',
+          onPress: () => {
+            setUseAIAG(prev => ({ ...prev, [courtCase.id]: true }));
+            // Simulate AI AG handling
+            const govWins = Math.random() > 0.4;
+            const outcome: CaseOutcome = govWins ? 'government_wins' : Math.random() > 0.5 ? 'citizens_win' : 'partial';
+            const notification = `Week ${gameState?.currentWeek || 0}: AI Attorney General has argued the government's case before ${COURT_LEVEL_NAMES[courtCase.level]}. The court will deliver its ruling next week.`;
+            setAIAGNotifications(prev => [...prev, { caseId: courtCase.id, message: notification, week: gameState?.currentWeek || 0 }]);
+            // Decide ruling after delay
+            setTimeout(() => {
+              setCases(prev => prev.map(c => c.id === courtCase.id ? { ...c, status: 'decided', outcome, canEscalate: true, agAnswers: ['[AI Attorney General argued on government\'s behalf]'] } : c));
+              const rulingNotif = `${COURT_LEVEL_NAMES[courtCase.level]} ruled on ${courtCase.billTitle}: ${outcome === 'government_wins' ? 'Government prevails — legislation upheld.' : outcome === 'citizens_win' ? 'Citizens win — legislation struck down.' : 'Partial ruling — amendments required.'}`;
+              setAIAGNotifications(prev => [...prev, { caseId: courtCase.id, message: rulingNotif, week: (gameState?.currentWeek || 0) + 1 }]);
+              showAlert('Court Ruling', rulingNotif);
+            }, 2000);
+            showAlert('AI AG Engaged', `The Attorney General will argue this case before ${COURT_LEVEL_NAMES[courtCase.level]}. You will receive a notification when the ruling is delivered.`);
+          },
+        },
+      ]
+    );
   };
 
   const openHearing = async (courtCase: CourtCase) => {
@@ -395,6 +426,22 @@ export default function SupremeCourtScreen() {
       </View>
 
       <ScrollView contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + 40 }]} showsVerticalScrollIndicator={false}>
+        {/* AI AG notifications */}
+        {aiAGNotifications.length > 0 ? (
+          <View style={styles.agNotifSection}>
+            <Text style={styles.sectionLabel}>AI ATTORNEY GENERAL UPDATES</Text>
+            {aiAGNotifications.map((n, idx) => (
+              <View key={idx} style={styles.agNotifCard}>
+                <MaterialCommunityIcons name="robot" size={13} color={Colors.info} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.agNotifWeek}>Week {n.week}</Text>
+                  <Text style={styles.agNotifText}>{n.message}</Text>
+                </View>
+              </View>
+            ))}
+          </View>
+        ) : null}
+
         <View style={styles.courtIntro}>
           <MaterialCommunityIcons name="scale-balance" size={14} color={Colors.info} />
           <Text style={styles.courtIntroText}>
@@ -434,9 +481,9 @@ export default function SupremeCourtScreen() {
               ) : null}
               <View style={styles.caseListActions}>
                 {!isDecided ? (
-                  <Pressable onPress={() => openHearing(c)} style={({ pressed }) => [styles.hearingBtn, { backgroundColor: partyColor }, pressed && { opacity: 0.85 }]}>
-                    <MaterialCommunityIcons name="gavel" size={13} color="#fff" />
-                    <Text style={styles.hearingBtnText}>Enter Hearing</Text>
+                  <Pressable onPress={() => useAIAG[c.id] ? showAlert('AI AG Active', aiAGNotifications.filter(n => n.caseId === c.id).slice(-1)[0]?.message || 'AI Attorney General is handling this case.') : handleChooseRepresentation(c)} style={({ pressed }) => [styles.hearingBtn, { backgroundColor: useAIAG[c.id] ? Colors.textMuted : partyColor }, pressed && { opacity: 0.85 }]}>
+                    <MaterialCommunityIcons name={useAIAG[c.id] ? 'robot' : 'gavel'} size={13} color="#fff" />
+                    <Text style={styles.hearingBtnText}>{useAIAG[c.id] ? 'AI AG Handling' : 'Choose Representation'}</Text>
                   </Pressable>
                 ) : c.canEscalate && getNextCourtLevel(c.level) ? (
                   <Pressable onPress={() => handleEscalate(c, true)} style={({ pressed }) => [styles.appealBtn, pressed && { opacity: 0.85 }]}>
@@ -478,6 +525,10 @@ const styles = StyleSheet.create({
   courtIntro: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: Colors.info + '11', borderRadius: Radius.sm, padding: Spacing.sm, borderWidth: 1, borderColor: Colors.info + '22' },
   courtIntroText: { flex: 1, fontSize: FontSize.xs, color: Colors.info, lineHeight: 18 },
   sectionLabel: { fontSize: FontSize.xs, fontWeight: FontWeight.bold, color: Colors.textMuted, letterSpacing: 1.5 },
+  agNotifSection: { gap: 6 },
+  agNotifCard: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: Colors.info + '0D', borderRadius: Radius.sm, padding: Spacing.sm, borderWidth: 1, borderColor: Colors.info + '22' },
+  agNotifWeek: { fontSize: 9, fontWeight: FontWeight.bold, color: Colors.info, marginBottom: 2 },
+  agNotifText: { fontSize: FontSize.xs, color: Colors.textSecondary, lineHeight: 17 },
   caseListCard: { backgroundColor: Colors.card, borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.surfaceBorder, padding: Spacing.md, gap: Spacing.sm },
   caseListHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
   caseListTitle: { fontSize: FontSize.sm, fontWeight: FontWeight.bold, color: Colors.textPrimary },

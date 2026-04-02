@@ -131,6 +131,18 @@ export default function DashboardScreen() {
     showAlert('Game Saved', 'Your progress has been saved. You can load it from the main menu.');
   }, [saveGame, showAlert]);
 
+  const handleBackToMenu = useCallback(() => {
+    showAlert(
+      'Return to Main Menu?',
+      'Your current session will not be auto-saved. Save first to keep your progress.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Save & Exit', onPress: async () => { await saveGame(); router.replace('/setup'); } },
+        { text: 'Exit Without Saving', style: 'destructive', onPress: () => router.replace('/setup') },
+      ]
+    );
+  }, [saveGame, router, showAlert]);
+
   const electionsIn = 208 - gameState.currentWeek;
   const partyColor = party?.color || Colors.primary;
 
@@ -303,6 +315,10 @@ export default function DashboardScreen() {
               <Pressable onPress={handleSaveGame} style={({ pressed }) => [styles.actionBtn, pressed && { opacity: 0.8 }]}>
                 <MaterialCommunityIcons name="content-save" size={22} color={Colors.success} />
                 <Text style={styles.actionText}>Save Game</Text>
+              </Pressable>
+              <Pressable onPress={handleBackToMenu} style={({ pressed }) => [styles.actionBtn, pressed && { opacity: 0.8 }]}>
+                <MaterialCommunityIcons name="home-import-outline" size={22} color={Colors.textSecondary} />
+                <Text style={styles.actionText}>Main Menu</Text>
               </Pressable>
               <Pressable onPress={() => router.push('/supreme-court')} style={({ pressed }) => [styles.actionBtn, pressed && { opacity: 0.8 }]}>
                 <MaterialCommunityIcons name="gavel" size={22} color={Colors.gold} />

@@ -97,7 +97,9 @@ export default function NewsScreen() {
   const party = PARTIES.find(p => p.id === gameState.playerPartyId);
   const partyColor = party?.color || Colors.gold;
   const articles = gameState.newsHistory;
-  const outletRequests = generateOutletRequests(gameState);
+  // Only show interview requests to governing party more frequently; opposition gets far fewer
+  const rawRequests = generateOutletRequests(gameState);
+  const outletRequests = gameState.isGoverning ? rawRequests : rawRequests.filter(() => Math.random() > 0.65).slice(0, 1);
 
   // Apply filters
   const filtered = articles.filter((a: any) => {
@@ -161,9 +163,50 @@ export default function NewsScreen() {
   };
 
   const startPressConference = async (outletName?: string) => {
-    const outlet = outletName || 'CBC News';
-    setSelectedOutletForEvent(outlet);
-    await fetchInterviewQuestions(outlet, 'press_conference');
+    // Multi-outlet press conference: gather questions from multiple outlets simultaneously
+    setLoadingAI(true);
+    const conferenceOutlets = outletName
+      ? [outletName]
+      : OUTLET_PROFILES.slice(0, 4).map(o => o.name); // all major outlets attend
+    const outletForSession = conferenceOutlets[0];
+    setSelectedOutletForEvent(outletForSession);
+    try {
+      const { data, error } = await supabase.functions.invoke('ai-question-period', {
+        body: {
+          partyName: party?.name,
+          leaderName: gameState.playerName,
+          isGoverning: gameState.isGoverning,
+          stats: gameState.stats,
+          currentEvents: gameState.currentEvents.slice(0, 3),
+          rivals: gameState.rivals.slice(0, 3).map((r: any) => ({ name: r.name, party: r.party, approval: r.approval })),
+          weekNumber: gameState.currentWeek,
+          parliamentNumber: gameState.parliamentNumber,
+          recentNewsHeadlines: gameState.newsHistory.slice(0, 5).map((n: any) => n.headline),
+          context: `This is a full press conference with all major outlets: ${conferenceOutlets.join(', ')}. Each question should come from a different outlet. Generate questions in a press conference setting where multiple journalists ask sharp, accountability-focused questions.`,
+        },
+      });
+      const outlet = OUTLET_PROFILES.find(o => o.name === outletForSession);
+      if (!error && data?.questions) {
+        // Assign questions to different outlets
+        const multiOutletQuestions = data.questions.slice(0, 4).map((q: any, idx: number) => ({
+          question: q.question,
+          askedBy: conferenceOutlets[idx % conferenceOutlets.length] + ' Reporter',
+          topic: q.topic || 'General',
+        }));
+        setSession({
+          outletName: 'Press Gallery',
+          outletColor: Colors.gold,
+          type: 'press_conference',
+          questions: multiOutletQuestions,
+          answers: [],
+          statementText: '',
+          currentQ: 0,
+          completed: false,
+        });
+        setNewsView('interview');
+      }
+    } catch {}
+    setLoadingAI(false);
   };
 
   const startInterview = async (outletName: string) => {
@@ -225,10 +268,10 @@ export default function NewsScreen() {
             <MaterialCommunityIcons name="close" size={22} color={Colors.textSecondary} />
           </Pressable>
           <View style={styles.sessionHeaderCenter}>
-            <View style={[styles.outletBadge, { backgroundColor: session.outletColor + '22' }]}>
-              <Text style={[styles.outletBadgeText, { color: session.outletColor }]}>{session.outletName}</Text>
-            </View>
-            <Text style={styles.sessionHeaderTitle}>{session.type === 'press_conference' ? 'Press Conference' : 'Media Interview'}</Text>
+              <View style={[styles.outletBadge, { backgroundColor: (session.outletColor || Colors.gold) + '22' }]}>
+                <Text style={[styles.outletBadgeText, { color: session.outletColor || Colors.gold }]}>{session.outletName}</Text>
+              </View>
+              <Text style={styles.sessionHeaderTitle}>{session.type === 'press_conference' ? (session.outletName === 'Press Gallery' ? 'Full Press Conference' : 'Press Conference') : 'Media Interview'}</Text>
           </View>
           <View style={{ width: 40 }} />
         </View>
