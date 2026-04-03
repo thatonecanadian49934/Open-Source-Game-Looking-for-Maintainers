@@ -1,4 +1,6 @@
 // Powered by OnSpace.AI
+import { MP } from '@/services/gameEngine';
+
 export type BillStage =
   | 'house_first_reading'
   | 'house_second_reading'
@@ -230,7 +232,8 @@ export function advanceBills(
   playerPartyId: string,
   playerSeats: number,
   totalSeats: number,
-  isGoverning: boolean
+  isGoverning: boolean,
+  mpRoster: MP[]
 ): Bill[] {
   return bills.map(bill => {
     if (bill.stage === 'royal_assent' || bill.stage === 'defeated') return bill;
@@ -251,7 +254,7 @@ export function advanceBills(
     const requiresVote = VOTE_STAGES.has(bill.stage);
 
     if (requiresVote) {
-      const result = simulateParliamentaryVote(bill, playerPartyId, playerSeats, totalSeats, isGoverning);
+      const result = simulateParliamentaryVote(bill, playerPartyId, playerSeats, totalSeats, isGoverning, mpRoster);
 
       const voteRecord: BillVoteRecord = {
         stage: bill.stage,
@@ -341,7 +344,8 @@ function simulateParliamentaryVote(
   playerPartyId: string,
   playerSeats: number,
   totalSeats: number,
-  isGoverning: boolean
+  isGoverning: boolean,
+  mpRoster: MP[]
 ): { passed: boolean; yea: number; nay: number } {
   // Player vote influence: if player voted, 85% of their party follows
   const playerVoteYea = bill.playerVote === 'yea';
@@ -362,8 +366,16 @@ function simulateParliamentaryVote(
   if (playerVoteYea) baseSupportProb = Math.min(0.95, baseSupportProb + 0.12);
   if (playerVoteNay) baseSupportProb = Math.max(0.05, baseSupportProb - 0.12);
 
+  // Whip system & potential rebellion
+  const lowLoyaltyMembers = mpRoster.filter(mp => mp.loyalty < 45 && mp.status === 'active').length;
+  const totalActive = mpRoster.filter(mp => mp.status === 'active').length || 1;
+  const rebellionFactor = lowLoyaltyMembers / totalActive;
+  const whipBonus = (mpRoster.filter(mp => mp.role === (isGoverning ? 'government' : 'opposition') && mp.status === 'active').length / Math.max(1, totalActive)) * 0.15;
+
+  const traitInfluence = -rebellionFactor * 0.25 + whipBonus;
+
   // Randomise slightly
-  const finalProb = Math.max(0.02, Math.min(0.98, baseSupportProb + (Math.random() * 0.14 - 0.07)));
+  const finalProb = Math.max(0.02, Math.min(0.98, baseSupportProb + traitInfluence + (Math.random() * 0.14 - 0.07)));
 
   const yea = Math.round(totalSeats * finalProb);
   const nay = totalSeats - yea;
@@ -390,13 +402,14 @@ export function createPlayerBill(
   playerPartyId: string,
   playerName: string,
   currentWeek: number,
-  isGoverning: boolean
+  isGoverning: boolean,
+  type: BillType = isGoverning ? 'government' : 'private_member'
 ): Bill {
   return {
     id: `player_bill_${Date.now()}`,
     title,
     description,
-    type: isGoverning ? 'government' : 'private_member',
+    type,
     stage: 'house_first_reading',
     introducedWeek: currentWeek,
     stageStartWeek: currentWeek,
@@ -458,4 +471,3 @@ export function getPipelineSteps(): { stage: BillStage; label: string; chamber: 
     { stage: 'senate_third_reading', label: '3rd Reading',  chamber: 'senate' },
     { stage: 'royal_assent',         label: 'Royal Assent', chamber: 'crown' },
   ];
-}
