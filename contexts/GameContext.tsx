@@ -383,17 +383,17 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       setActiveWars(prevWars => {
         if (!prevWars) return [];
         return prevWars.map(w => {
-        const weeklyLand = w.strategy === 'shock_and_awe' ? 4 + Math.random() * 4
-          : w.strategy === 'siege' ? 2 + Math.random() * 2
-          : w.strategy === 'guerrilla' ? 1 + Math.random() * 2
-          : w.strategy === 'full_mobilization' ? 6 + Math.random() * 6
-          : 1 + Math.random() * 2;
-        const newLand = Math.min(95, w.landGained + weeklyLand);
-        const newCasualties = w.casualties + Math.floor(Math.random() * 150 + 50);
-        const popDelta = w.strategy === 'diplomatic_pressure' ? 1 : -2 - Math.random() * 3;
-        const newPop = Math.max(5, Math.min(100, w.warPopularity + popDelta));
-        const progress: ActiveWarState['warProgress'] = newLand >= 60 ? 'dominant' : newLand >= 35 ? 'winning' : newLand >= 15 ? 'stalemate' : 'losing';
-        return { ...w, weeksActive: w.weeksActive + 1, landGained: newLand, casualties: newCasualties, warPopularity: newPop, warProgress: progress, riotActive: newPop < 25 };
+          const weeklyLand = w.strategy === 'shock_and_awe' ? 4 + Math.random() * 4
+            : w.strategy === 'siege' ? 2 + Math.random() * 2
+            : w.strategy === 'guerrilla' ? 1 + Math.random() * 2
+            : w.strategy === 'full_mobilization' ? 6 + Math.random() * 6
+            : 1 + Math.random() * 2;
+          const newLand = Math.min(95, w.landGained + weeklyLand);
+          const newCasualties = w.casualties + Math.floor(Math.random() * 150 + 50);
+          const popDelta = w.strategy === 'diplomatic_pressure' ? 1 : -2 - Math.random() * 3;
+          const newPop = Math.max(5, Math.min(100, w.warPopularity + popDelta));
+          const progress: ActiveWarState['warProgress'] = newLand >= 60 ? 'dominant' : newLand >= 35 ? 'winning' : newLand >= 15 ? 'stalemate' : 'losing';
+          return { ...w, weeksActive: w.weeksActive + 1, landGained: newLand, casualties: newCasualties, warPopularity: newPop, warProgress: progress, riotActive: newPop < 25 };
         });
       });
 
