@@ -471,3 +471,4 @@ export function getPipelineSteps(): { stage: BillStage; label: string; chamber: 
     { stage: 'senate_third_reading', label: '3rd Reading',  chamber: 'senate' },
     { stage: 'royal_assent',         label: 'Royal Assent', chamber: 'crown' },
   ];
+}
