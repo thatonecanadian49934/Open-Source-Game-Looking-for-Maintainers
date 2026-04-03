@@ -1,6 +1,14 @@
-# Welcome to OnSpace AI
+# Game Project
 
-Onspace AI empowers anyone to turn ideas into powerful AI applications in minutes—no coding required. Our free, no-code platform enables effortless creation of custom AI apps; simply describe your vision and our agentic AI handles the rest. The onspace-app, built with React Native and Expo, demonstrates this capability—integrating popular third-party libraries to deliver seamless cross-platform performance across iOS, Android, and Web environments.
+This project is open for adoption.
+
+Anyone is free to fork, modify, or continue development of this game.
+
+If you want to take over maintenance, feel free to contact me or fork the repository.
+
+License: MIT
+
+No credit reqired I just wanted a Canadian Parlimenary Game since there are currently none. All I ask is you allow my acess to play for free and ask any questions on the canadian house of commons rules or procedures.
 
 ## Getting Started
 
