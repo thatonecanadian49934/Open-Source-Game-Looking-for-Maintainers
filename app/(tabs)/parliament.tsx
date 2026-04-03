@@ -72,8 +72,7 @@ export default function ParliamentScreen() {
   };
 
   const handleAccelerate = (bill: Bill) => {
-    const oppositionPrioritize = !gameState.isGoverning && bill.type === 'opposition';
-    if (!canAccelerate && !oppositionPrioritize) return;
+    if (!canAccelerate) return;
     const isOwnBill = bill.sponsorParty === gameState.playerPartyId;
     showAlert(
       'Force Parliamentary Vote',
@@ -81,15 +80,11 @@ export default function ParliamentScreen() {
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: oppositionPrioritize ? 'Prioritize Opposition Bill' : isOwnBill ? 'Force Vote' : 'Invoke Closure',
-          style: oppositionPrioritize ? 'default' : isOwnBill ? 'default' : 'destructive',
+          text: isOwnBill ? 'Force Vote' : 'Invoke Closure',
+          style: isOwnBill ? 'default' : 'destructive',
           onPress: () => {
             accelerateBill(bill.id);
-            if (oppositionPrioritize) {
-              showAlert('Opposition Priority', `Your Opposition bill "${bill.title}" has been prioritized and forced to a vote in the House.`);
-            } else {
-              showAlert('Closure Invoked', `The vote on "${bill.title}" has been accelerated to this week. The opposition is furious.`);
-            }
+            showAlert('Closure Invoked', `The vote on "${bill.title}" has been accelerated to this week. The opposition is furious.`);
           },
         },
       ]
@@ -275,13 +270,6 @@ export default function ParliamentScreen() {
         >
           <MaterialCommunityIcons name="plus" size={14} color="#fff" />
           <Text style={styles.createBillText}>Bill</Text>
-        </Pressable>
-        <Pressable
-          onPress={() => router.push('/standing-committee')}
-          style={({ pressed }) => [styles.createBillBtn, { backgroundColor: Colors.info }, pressed && { opacity: 0.8 }]}
-        >
-          <MaterialCommunityIcons name="domain" size={14} color="#fff" />
-          <Text style={styles.createBillText}>Committees</Text>
         </Pressable>
       </View>
 

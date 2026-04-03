@@ -43,7 +43,6 @@ export default function RootLayout() {
             <Stack.Screen name="senate-appointments" options={{ presentation: 'modal' }} />
             <Stack.Screen name="order-in-council" options={{ presentation: 'modal' }} />
             <Stack.Screen name="accountability" options={{ presentation: 'modal' }} />
-            <Stack.Screen name="committee" options={{ presentation: 'modal' }} />
           </Stack>
         </GameProvider>
       </SafeAreaProvider>

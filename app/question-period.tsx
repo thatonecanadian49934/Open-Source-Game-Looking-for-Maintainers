@@ -97,9 +97,6 @@ export default function QuestionPeriodScreen() {
   const [aiError, setAiError] = useState(false);
   const [phase, setPhase] = useState<'questioning' | 'complete'>('questioning');
   const [oppPhase, setOppPhase] = useState<'select_topic' | 'write_question' | 'receive_answer' | 'complete'>('select_topic');
-  const [qpSecondsLeft, setQpSecondsLeft] = useState(120);
-  const [currentSupplementary, setCurrentSupplementary] = useState(0);
-  const [speakerRuling, setSpeakerRuling] = useState('');
 
   const questionFade = useRef(new Animated.Value(1)).current;
   const scoreFade = useRef(new Animated.Value(0)).current;
@@ -154,15 +151,6 @@ export default function QuestionPeriodScreen() {
     if (isGoverning) fetchPMQuestions();
   }, []);
 
-  useEffect(() => {
-    if (qpSecondsLeft <= 0) {
-      setPhase('complete');
-      return;
-    }
-    const timer = setTimeout(() => setQpSecondsLeft(qpSecondsLeft - 1), 1000);
-    return () => clearTimeout(timer);
-  }, [qpSecondsLeft]);
-
   const getPerformance = (wordCount: number): { perf: 'excellent' | 'good' | 'poor'; effect: number; label: string } => {
     if (wordCount >= 80) return { perf: 'excellent', effect: 5, label: 'COMMANDING' };
     if (wordCount >= 45) return { perf: 'excellent', effect: 4, label: 'STRONG' };
@@ -180,8 +168,6 @@ export default function QuestionPeriodScreen() {
     const wordCount = answer.trim().split(/\s+/).filter(Boolean).length;
     const { perf, effect, label } = getPerformance(wordCount);
     answerQuestion(q.question, answer, perf);
-    const nonResponsive = wordCount < 20;
-    if (nonResponsive) setSpeakerRuling('Speaker: This response is non-responsive. Supplementary question may be requested.');
     const sa: SessionAnswer = { question: q, answer: answer.trim(), wordCount, performance: perf, approvalEffect: effect };
     const newAnswers = [...sessionAnswers, sa];
     setSessionAnswers(newAnswers);
@@ -202,7 +188,6 @@ export default function QuestionPeriodScreen() {
   const handlePMSkip = () => {
     const q = pmQuestions[currentIndex];
     if (!q) return;
-    setSpeakerRuling('Speaker: The answer was skipped. The member is non-responsive under House rules.');
     answerQuestion(q.question, '[Skipped]', 'poor');
     const sa: SessionAnswer = { question: q, answer: '[Question skipped — no response given]', wordCount: 0, performance: 'poor', approvalEffect: -4 };
     const newAnswers = [...sessionAnswers, sa];
@@ -213,34 +198,6 @@ export default function QuestionPeriodScreen() {
     } else {
       setPhase('complete');
     }
-  };
-
-  const tableDocument = () => {
-    setSpeakerRuling('Document tabled: The Minister has tabled documents for the House record.');
-    answerQuestion('Table document', 'Document tabled', 'good');
-    setQpSecondsLeft(prev => Math.max(0, prev - 8));
-  };
-
-  const raisePointPrivilege = () => {
-    setSpeakerRuling('Point of privilege raised: Speaker acknowledges and reserves judgment.');
-    answerQuestion('Point of privilege', 'Privilege raised', 'good');
-    setQpSecondsLeft(prev => Math.max(0, prev - 6));
-  };
-
-  const moveEmergencyDebate = () => {
-    setSpeakerRuling('Emergency debate motion moved: House will consider urgent debate agenda.');
-    answerQuestion('Emergency debate', 'Emergency debate moved', 'excellent');
-    setQpSecondsLeft(prev => Math.max(0, prev - 10));
-  };
-
-  const requestSupplementary = () => {
-    if (currentSupplementary >= 2) {
-      setSpeakerRuling('Speaker: No more supplementary questions available this session.');
-      return;
-    }
-    setCurrentSupplementary(prev => prev + 1);
-    setSpeakerRuling('Speaker permits a supplementary question.');
-    setQpSecondsLeft(prev => Math.max(0, prev - 4));
   };
 
   // ── OPPOSITION QUESTION TO PM ─────────────────────────────────────────────
@@ -457,14 +414,6 @@ export default function QuestionPeriodScreen() {
             <Text style={styles.progressLabel}>Question {currentIndex + 1} of {pmQuestions.length}</Text>
           </View>
 
-          {/* Speaker & allocation */}
-          <View style={[styles.contextBanner, { backgroundColor: Colors.surfaceElevated, borderColor: Colors.surfaceBorder }]}> 
-            <Text style={[styles.contextText, { fontWeight: FontWeight.bold }]}>QP Timer: {Math.floor(qpSecondsLeft / 60)}:{String(qpSecondsLeft % 60).padStart(2, '0')}</Text>
-            <Text style={styles.contextText}>Firm spots remaining: {currentSupplementary}/2 supplementary questions.</Text>
-            <Text style={styles.contextText}>Dispatch Box time split approximates seat share: {[...Object.entries(gameState.seats)].map(([party, seats]) => `${party.toUpperCase()}:${Math.round((seats / 338) * 100)}%`).join(' • ')}</Text>
-            {speakerRuling ? <Text style={[styles.contextText, { color: Colors.error }]}>{speakerRuling}</Text> : null}
-          </View>
-
           {/* Current question */}
           {currentPMQuestion ? (
             <Animated.View style={[styles.questionBlock, { opacity: questionFade }]}>
@@ -539,13 +488,6 @@ export default function QuestionPeriodScreen() {
                     {currentIndex < pmQuestions.length - 1 ? 'Submit Answer' : 'Complete Session'}
                   </Text>
                 </Pressable>
-              </View>
-
-              <View style={styles.qpExtras}>
-                <Pressable onPress={tableDocument} style={styles.smallBtn}><Text style={styles.smallBtnText}>Table Document</Text></Pressable>
-                <Pressable onPress={raisePointPrivilege} style={styles.smallBtn}><Text style={styles.smallBtnText}>Point of Privilege</Text></Pressable>
-                <Pressable onPress={moveEmergencyDebate} style={styles.smallBtn}><Text style={styles.smallBtnText}>Emergency Debate</Text></Pressable>
-                <Pressable onPress={requestSupplementary} style={styles.smallBtn}><Text style={styles.smallBtnText}>Supplementary</Text></Pressable>
               </View>
             </Animated.View>
           ) : null}
@@ -825,7 +767,6 @@ const styles = StyleSheet.create({
   wordGuide: { flexDirection: 'row', gap: 3 },
   wordGuideSeg: { width: 20, height: 4, borderRadius: 2, backgroundColor: Colors.surfaceBorder },
   answerActions: { flexDirection: 'row', gap: Spacing.sm },
-  qpExtras: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.xs, marginTop: Spacing.sm },
   skipBtn: { paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, borderRadius: Radius.sm, borderWidth: 1, borderColor: Colors.surfaceBorder, alignItems: 'center', justifyContent: 'center' },
   skipBtnText: { fontSize: FontSize.xs, color: Colors.textSecondary, fontWeight: FontWeight.medium },
   submitBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: Spacing.sm, borderRadius: Radius.sm },
