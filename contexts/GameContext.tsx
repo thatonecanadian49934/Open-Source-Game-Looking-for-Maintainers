@@ -380,7 +380,9 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       }
 
       // Advance active wars each week — update casualties, land, popularity
-      setActiveWars(prevWars => prevWars.map(w => {
+      setActiveWars(prevWars => {
+        if (!prevWars) return [];
+        return prevWars.map(w => {
         const weeklyLand = w.strategy === 'shock_and_awe' ? 4 + Math.random() * 4
           : w.strategy === 'siege' ? 2 + Math.random() * 2
           : w.strategy === 'guerrilla' ? 1 + Math.random() * 2
@@ -391,8 +393,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         const popDelta = w.strategy === 'diplomatic_pressure' ? 1 : -2 - Math.random() * 3;
         const newPop = Math.max(5, Math.min(100, w.warPopularity + popDelta));
         const progress: ActiveWarState['warProgress'] = newLand >= 60 ? 'dominant' : newLand >= 35 ? 'winning' : newLand >= 15 ? 'stalemate' : 'losing';
-        return { ...w, weeksActive: w.weeksActive + 1, landGained: newLand, casualties: newCasualties, warPopularity: newPop, warProgress: progress, riotActive: newPop < 25 };
-      }));
+        return { ...w, weeksActive: w.weeksActive + 1, landGained: newLand, casualties: newCasualties, warPopularity: newPop, warProgress: progress, riotActive: newPop < 25 };        });      }));
 
       // By-election trigger (~5% chance per week)
       if (!prev.inElection && Math.random() < 0.05 && !byElectionTrigger) {
