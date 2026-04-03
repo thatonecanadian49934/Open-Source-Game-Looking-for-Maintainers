@@ -8,6 +8,7 @@ import { useGame } from '@/hooks/useGame';
 import { useAlert } from '@/template';
 import { Colors, Spacing, Radius, FontSize, FontWeight } from '@/constants/theme';
 import { Bill } from '@/services/billService';
+import { CommitteeStudy } from '@/services/committeeService';
 
 export default function StandingCommitteeScreen() {
   const insets = useSafeAreaInsets();
@@ -63,7 +64,7 @@ export default function StandingCommitteeScreen() {
   };
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <View style={[styles.container, { paddingTop: insets.top }]}> 
       <View style={styles.header}>
         <Pressable onPress={() => router.back()} style={styles.backBtn}>
           <MaterialCommunityIcons name="close" size={24} color={Colors.textSecondary} />
@@ -77,7 +78,7 @@ export default function StandingCommitteeScreen() {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Committees (10)</Text>
           {committees.map(c => (
-            <Pressable key={c.id} onPress={() => setSelectedCommittee(c.id)} style={({ pressed }) => [styles.committeeRow, selectedCommittee === c.id && { borderColor: Colors.success, backgroundColor: Colors.success + '11' }, pressed && { opacity: 0.75 }]}>
+            <Pressable key={c.id} onPress={() => setSelectedCommittee(c.id)} style={({ pressed }: { pressed: boolean }) => [styles.committeeRow, selectedCommittee === c.id && { borderColor: Colors.success, backgroundColor: Colors.success + '11' }, pressed && { opacity: 0.75 }]}>
               <Text style={styles.committeeName}>{c.code} — {c.name}</Text>
               <Text style={styles.committeeMembers}>{c.members.length} members • {c.billsUnderReview.length} bills</Text>
             </Pressable>
@@ -100,7 +101,7 @@ export default function StandingCommitteeScreen() {
                 <Text style={styles.actionBtnText}>Launch Study</Text>
               </Pressable>
               <Text style={styles.subTitle}>Active Studies</Text>
-              {committee.activeStudies.length > 0 ? committee.activeStudies.map(s => (
+              {committee.activeStudies.length > 0 ? committee.activeStudies.map((s: CommitteeStudy) => (
                 <View key={s.id} style={styles.studyRow}>
                   <Text style={styles.studyTitle}>{s.title}</Text>
                   <Text style={styles.studyMeta}>{s.status.toUpperCase()} — started wk {s.launchedWeek}</Text>
