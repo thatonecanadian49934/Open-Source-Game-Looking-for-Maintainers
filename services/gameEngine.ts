@@ -1,6 +1,7 @@
 // Powered by OnSpace.AI
 import { REAL_PROVINCES, MAJORITY_SEATS, TOTAL_SEATS } from '@/constants/provinces';
 import { PARTIES, RIVAL_LEADERS } from '@/constants/parties';
+import { assignCommitteesToMPs, advanceCommitteeWork, CommitteeSummary } from '@/services/committeeService';
 
 export interface PlayerStats {
   approvalRating: number;        // 0-100
@@ -34,6 +35,33 @@ export interface CabinetMember {
   name: string;
   loyalty: number;
   competence: number;
+}
+
+export interface MP {
+  id: string;
+  name: string;
+  partyId: string;
+  loyalty: number;
+  role: 'government' | 'opposition' | 'independent';
+  status: 'active' | 'rebellious' | 'expelled' | 'crossed';
+}
+
+export interface CommitteeSummary {
+  id: string;
+  code: string;
+  name: string;
+  mandate: string;
+  members: string[];
+  chairId: string | null;
+  billsUnderReview: string[];
+  activeStudies: Array<{
+    id: string;
+    title: string;
+    topic: string;
+    launchedWeek: number;
+    status: 'ongoing' | 'completed';
+    reportSummary?: string;
+  }>;
 }
 
 export interface GameState {
@@ -86,11 +114,22 @@ export interface GameState {
   // Parliament schedule
   parliamentInSession: boolean;
   nextSessionWeek: number;
+  oppositionDaysUsed: number;
+  oppositionDaysAvailable: number;
+  mainEstimatesTabled: boolean;
+  supplementaryEstimatesTabled: boolean;
+  springEconomicStatementTabled: boolean;
+  supplyDeadlineWeek: number;
+  supplyPassed: boolean;
+  confidenceCrisisTriggered: boolean;
+  mpRoster: MP[];
+  committees: CommitteeSummary[];
+  lastThisWeekInParliamentWeek: number;
+
   // Additional parliamentary fields
   thronesSpeechDelivered?: boolean;
   budgetTabled?: boolean;
   prorogued?: boolean;
-  confidenceVoteAvailable: boolean;
   isMajority?: boolean;
 }
 
@@ -192,6 +231,9 @@ export function initializeGame(playerPartyId: string, playerName: string): GameS
   
   const cabinet: CabinetMember[] = isGoverning ? generateInitialCabinet() : [];
   
+  const mpRoster = generateMPRoster(seats);
+  const committees = generateCommitteeSummaries(mpRoster);
+
   return {
     playerPartyId,
     playerName,
@@ -208,6 +250,16 @@ export function initializeGame(playerPartyId: string, playerName: string): GameS
     isGoverning,
     isMajority: seats[playerPartyId] >= MAJORITY_SEATS,
     isOpposition: !isGoverning,
+    oppositionDaysUsed: 0,
+    oppositionDaysAvailable: 22,
+    mainEstimatesTabled: false,
+    supplementaryEstimatesTabled: false,
+    springEconomicStatementTabled: false,
+    supplyDeadlineWeek: 24,
+    supplyPassed: false,
+    confidenceCrisisTriggered: false,
+    mpRoster,
+    committees,
     stats: {
       approvalRating: party.baseSupport,
       partyStanding: 50,
@@ -252,6 +304,41 @@ function generateInitialCabinet(): CabinetMember[] {
     loyalty: 60 + Math.floor(Math.random() * 30),
     competence: 50 + Math.floor(Math.random() * 40),
   }));
+}
+
+function generateMPRoster(seats: SeatCount): MP[] {
+  const mps: MP[] = [];
+  const firstNames = ['Alex', 'Jordan', 'Taylor', 'Morgan', 'Casey', 'Riley', 'Jordan', 'Cameron', 'Drew', 'Sam'];
+  const lastNames = ['Smith', 'Brown', 'Johnson', 'Martin', 'Lee', 'Thompson', 'Chen', 'MacDonald', 'Clark', 'Patel'];
+  let nextId = 1;
+
+  Object.entries(seats).forEach(([partyId, count]) => {
+    for (let i = 0; i < count; i++) {
+      const name = `${firstNames[(nextId + i) % firstNames.length]} ${lastNames[(nextId + i) % lastNames.length]}`;
+      mps.push({
+        id: `mp_${nextId++}`,
+        name,
+        partyId,
+        loyalty: 30 + Math.floor(Math.random() * 65),
+        role: partyId === 'independent' ? 'independent' : 'opposition',
+        status: 'active',
+      });
+    }
+  });
+
+  // Mark governing party caucus MPs
+  const governingParty = Object.entries(seats).sort((a, b) => b[1] - a[1])[0]?.[0];
+  mps.forEach(mp => {
+    if (mp.partyId === governingParty && governingParty !== 'independent') {
+      mp.role = 'government';
+    }
+  });
+
+  return mps;
+}
+
+function generateCommitteeSummaries(mpRoster: MP[]): CommitteeSummary[] {
+  return assignCommitteesToMPs(mpRoster).map(c => ({ ...c }));
 }
 
 function generateProvincialSeats(seats: SeatCount): ProvinceSeatCount {
@@ -544,6 +631,91 @@ function getEventPool(week: number, playerPartyId: string, isGoverning: boolean)
     },
   ];
   
+  // Add special supply/estimates events
+  if (week === 10) {
+    events.push({
+      id: `main_estimates_${week}`,
+      week,
+      title: 'Main Estimates Tabled',
+      description: 'Main Estimates are presented to the House. Standing Committee on Finance will lead review. This is a critical supply vote matter.',
+      type: 'economic',
+      urgency: 'high',
+      expires: week + 2,
+      choices: [
+        {
+          id: 'approve_main_estimates',
+          label: 'Support Main Estimates',
+          description: 'Move to approve the government Estimates legislation in Committee and at report stage.',
+          effects: { governmentApproval: 3, approvalRating: 2 },
+          newsHeadline: 'Main Estimates approved by committee majority',
+        },
+        {
+          id: 'contest_main_estimates',
+          label: 'Challenge Main Estimates',
+          description: 'Opposition pushes back and demands changes, risking confidence warning.',
+          effects: { partyStanding: 4, governmentApproval: -4 },
+          newsHeadline: 'Opposition fights Main Estimates in committee',
+        },
+      ],
+    });
+  }
+
+  if (week === 20) {
+    events.push({
+      id: `supplementary_estimates_${week}`,
+      week,
+      title: 'Supplementary Estimates (A) Introduced',
+      description: 'Supplementary Estimates are tabled to adjust spending mid-year. Finance committee review is required.',
+      type: 'economic',
+      urgency: 'medium',
+      expires: week + 2,
+      choices: [
+        {
+          id: 'approve_supplementary_estimates',
+          label: 'Support Supplementary Estimates',
+          description: 'Work with committee to pass the adjustments and maintain supply support.',
+          effects: { governmentApproval: 2, partyStanding: 1 },
+          newsHeadline: 'Supplementary Estimates move through Commons',
+        },
+        {
+          id: 'oppose_supplementary_estimates',
+          label: 'Oppose Supplementary Estimates',
+          description: 'Use this to pressure the government and highlight fiscal risk.',
+          effects: { partyStanding: 3, governmentApproval: -3 },
+          newsHeadline: 'Opposition resists supplementary spending request',
+        },
+      ],
+    });
+  }
+
+  if (week === 30) {
+    events.push({
+      id: `spring_economic_statement_${week}`,
+      week,
+      title: 'Spring Economic Statement',
+      description: 'The government delivers the Spring Economic Statement and tables forecasts. Opposition may seize the narrative.',
+      type: 'economic',
+      urgency: 'high',
+      expires: week + 3,
+      choices: [
+        {
+          id: 'present_ses',
+          label: 'Present Spring Economic Statement',
+          description: 'Highlight economic plan and invest in growth.',
+          effects: { governmentApproval: 4, gdpGrowth: 0.2 },
+          newsHeadline: 'Government unveils Spring Economic Statement',
+        },
+        {
+          id: 'delay_ses',
+          label: 'Delay Spring Economic Statement',
+          description: 'Argue for more data, but risk being seen as indecisive.',
+          effects: { governmentApproval: -2, partyStanding: -1 },
+          newsHeadline: 'Government delays Spring Economic Statement',
+        },
+      ],
+    });
+  }
+
   // Add governing-specific events
   if (isGoverning) {
     events.push({
@@ -598,7 +770,20 @@ export function processWeek(state: GameState, chosenEventChoices: Record<string,
             (newState.stats as any)[key] = Math.max(0, Math.min(100, ((newState.stats as any)[key] || 0) + value));
           }
         });
-        
+
+        if (event.id.startsWith('main_estimates')) {
+          newState.mainEstimatesTabled = true;
+          if (choiceId === 'approve_main_estimates') newState.supplyPassed = true;
+        }
+        if (event.id.startsWith('supplementary_estimates')) {
+          newState.supplementaryEstimatesTabled = true;
+          if (choiceId === 'approve_supplementary_estimates') newState.supplyPassed = true;
+        }
+        if (event.id.startsWith('spring_economic_statement')) {
+          newState.springEconomicStatementTabled = true;
+          if (choiceId === 'present_ses') newState.supplyPassed = true;
+        }
+
         // Generate news for this choice
         const outlet = NEWS_OUTLETS[Math.floor(Math.random() * NEWS_OUTLETS.length)];
         newState.newsHistory = [
@@ -637,9 +822,30 @@ export function processWeek(state: GameState, chosenEventChoices: Record<string,
     newState.parliamentNumber += 1;
   }
   
+  // Advance committee work each week
+  newState.committees = newState.committees.map(c => advanceCommitteeWork(c, newState.currentWeek));
+
   // Generate new events
   newState.currentEvents = generateWeeklyEvents(newState.currentWeek, newState.playerPartyId, newState.isGoverning);
-  
+
+  // Supply deadline => confidence crisis if not secured by June-23 equivalent
+  if (newState.currentWeek >= newState.supplyDeadlineWeek && !newState.supplyPassed && !newState.confidenceCrisisTriggered) {
+    newState.confidenceCrisisTriggered = true;
+    newState.confidenceVoteAvailable = true;
+    newState.newsHistory = [
+      {
+        id: `news_supply_crisis_${Date.now()}`,
+        week: newState.currentWeek,
+        outlet: 'CBC News',
+        headline: 'Supply Bill deadlock triggers confidence crisis',
+        body: 'By June 23 equivalent, key supply measures remain unpassed. The opposition has tabled a confidence motion.',
+        sentiment: 'negative',
+        topic: 'political',
+      },
+      ...newState.newsHistory,
+    ].slice(0, 60);
+  }
+
   // Update confidence vote availability
   newState.confidenceVoteAvailable = newState.isOpposition && 
     !newState.isMajority && 
@@ -680,3 +886,4 @@ function clampStats(stats: PlayerStats): PlayerStats {
     unemploymentRate: Math.max(2, Math.min(25, stats.unemploymentRate)),
   };
 }
+
