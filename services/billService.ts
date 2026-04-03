@@ -1,3 +1,4 @@
+
 // Powered by OnSpace.AI
 import { MP } from '@/services/gameEngine';
 
@@ -306,17 +307,18 @@ export function advanceBills(
         };
       }
 
-      const nextStage = BILL_STAGE_ORDER[currentIdx + 1] as BillStage;
-      const isPassed = nextStage === 'royal_assent' || currentIdx + 1 >= BILL_STAGE_ORDER.length - 1;
+      const nextStage = BILL_STAGE_ORDER[currentIdx + 1];
+      // Type assertion because we know nextStage will be a BillStage or undefined, which handles the 'royal_assent' case
+      const stageToSet = nextStage === undefined ? 'royal_assent' : nextStage;
 
       return {
         ...bill,
-        stage: nextStage || 'royal_assent',
+        stage: stageToSet,
         stageStartWeek: currentWeek,
         weeksAtStage: 0,
         votesFor: result.yea,
         votesAgainst: result.nay,
-        passed: nextStage === 'royal_assent',
+        passed: stageToSet === 'royal_assent',
         voteHistory: [...bill.voteHistory, voteRecord],
         accelerated: false,
         stageWeeksRemaining: DEFAULT_STAGE_WEEKS,
@@ -325,13 +327,15 @@ export function advanceBills(
     }
 
     // Non-vote stage — auto advance (1st reading, committee)
-    const nextStage = BILL_STAGE_ORDER[currentIdx + 1] as BillStage || 'royal_assent';
+    const nextStage = BILL_STAGE_ORDER[currentIdx + 1];
+    // Type assertion for consistency
+    const stageToSet = nextStage === undefined ? 'royal_assent' : nextStage;
     return {
       ...bill,
-      stage: nextStage,
+      stage: stageToSet,
       stageStartWeek: currentWeek,
       weeksAtStage: 0,
-      passed: nextStage === 'royal_assent',
+      passed: stageToSet === 'royal_assent',
       accelerated: false,
       stageWeeksRemaining: DEFAULT_STAGE_WEEKS,
       scheduledVoteWeek: null,
@@ -471,3 +475,4 @@ export function getPipelineSteps(): { stage: BillStage; label: string; chamber: 
     { stage: 'senate_third_reading', label: '3rd Reading',  chamber: 'senate' },
     { stage: 'royal_assent',         label: 'Royal Assent', chamber: 'crown' },
   ];
+}
