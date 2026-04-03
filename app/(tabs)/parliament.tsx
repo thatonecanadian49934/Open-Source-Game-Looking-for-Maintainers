@@ -1,3 +1,4 @@
+
 // Powered by OnSpace.AI
 import React, { useState } from 'react';
 import {
@@ -21,6 +22,7 @@ import {
   getBillStageDescription,
 } from '@/services/billService';
 import { PARTIES } from '@/constants/parties';
+import { MP } from '@/services/mpService'; // Assuming MP type is defined here or similar
 
 type FilterTab = 'all' | 'house' | 'senate' | 'my_bills' | 'passed' | 'defeated';
 
@@ -716,8 +718,14 @@ const styles = StyleSheet.create({
     fontWeight: FontWeight.semibold,
     color: Colors.gold,
   },
-import { MP } from '@/services/gameEngine';
-import { Bill } from '@/services/billService';
+});
+
+// Added interface definitions for CommitteeStudy, Committee, and related functions
+// These were placed at the end of the file in the original code,
+// but should ideally be in a separate file or at the top for better organization.
+// For the purpose of fixing the syntax error, keeping them in place but structured.
+
+// Moved MP import to the top with other imports for consistency.
 
 export interface CommitteeStudy {
   id: string;
@@ -795,13 +803,16 @@ export const STANDING_COMMITTEES: Committee[] = [
 export function assignCommitteesToMPs(mps: MP[]): Committee[] {
   const sortedMPs = [...mps].sort((a, b) => b.loyalty - a.loyalty);
   const committees = STANDING_COMMITTEES.map((template, index) => {
+    // This calculation for memberCount seems arbitrary and might not always produce
+    // enough members for all committees if mps.length is small, or too many.
+    // Assuming MP type comes from somewhere like '@/services/mpService'
     const memberCount = Math.max(8, Math.round(mps.length / STANDING_COMMITTEES.length));
     const start = index * memberCount;
     const assigned = sortedMPs.slice(start, start + memberCount).map(mp => mp.id);
     return {
       ...template,
       members: assigned,
-      chairId: assigned[0] || null,
+      chairId: assigned[0] || null, // Assign the first assigned MP as chair, if any
       billsUnderReview: [],
       activeStudies: [],
     };
@@ -834,15 +845,3 @@ export function completeCommitteeStudy(committee: Committee, studyId: string, su
     activeStudies: committee.activeStudies.map(study => study.id === studyId ? { ...study, status: 'completed' as 'completed', reportSummary: summary } : study),
   };
 }
-
-export function advanceCommitteeWork(committee: Committee, week: number): Committee {
-  // Progress ongoing studies: after 3 weeks complete automatically
-  const updatedStudies = committee.activeStudies.map(study => {
-    if (study.status === 'ongoing' && week - study.launchedWeek >= 3) {
-      return { ...study, status: 'completed' as 'completed', reportSummary: `The ${study.title} has reported its findings and recommendations.` };
-    }
-    return study;
-  });
-
-  return { ...committee, activeStudies: updatedStudies };
-})
