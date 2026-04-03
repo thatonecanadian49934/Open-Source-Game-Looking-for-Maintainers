@@ -32,6 +32,7 @@ import {
 } from '@/services/newsService';
 import { PARTIES } from '@/constants/parties';
 import { TOTAL_SEATS, MAJORITY_SEATS } from '@/constants/provinces';
+import { assignBillToCommittee as assignBillToCommitteeService, launchCommitteeStudy as launchCommitteeStudyService, advanceCommitteeWork as advanceCommitteeWorkService } from '@/services/committeeService';
 import { getSupabaseClient } from '@/template';
 
 const SAVE_KEY = 'fantasy_parliament_save';
@@ -135,6 +136,15 @@ export interface GameContextType {
   // Question Period
   answerQuestion: (question: string, answer: string, performance: 'excellent' | 'good' | 'poor') => void;
 
+  // Committee
+  launchCommitteeStudy: (committeeId: string, topic: string) => void;
+  assignBillToCommittee: (committeeId: string, billId: string) => void;
+  addBillAmendment: (billId: string, amendment: string) => void;
+
+  // MPs
+  whipMPs: (billId: string) => void;
+  offerFloorCrossing: (mpId: string, targetPartyId: string) => void;
+
   // Leadership Review
   resolveLeadershipReview: (survive: boolean) => void;
 
@@ -179,6 +189,14 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     loadSavedGames();
   }, []);
+
+  // Autosave progress every minute
+  useEffect(() => {
+    const interval = setInterval(() => {
+      saveGame();
+    }, 60 * 1000);
+    return () => clearInterval(interval);
+  }, [saveGame]);
 
   const loadSavedGames = async () => {
     try {
@@ -392,7 +410,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
 
       // Advance bills
       setBills(prevBills =>
-        advanceBills(prevBills, newState.currentWeek, newState.playerPartyId, newState.seats[newState.playerPartyId] || 0, TOTAL_SEATS, newState.isGoverning)
+        advanceBills(prevBills, newState.currentWeek, newState.playerPartyId, newState.seats[newState.playerPartyId] || 0, TOTAL_SEATS, newState.isGoverning, newState.mpRoster)
       );
 
       // Fetch AI events for next week
@@ -426,7 +444,9 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   const createBill = useCallback((title: string, description: string, topic: string, fiscalImpact: string) => {
     setGameState(prev => {
       if (!prev) return prev;
-      const newBill = createPlayerBill(title, description, topic, fiscalImpact, prev.playerPartyId, prev.playerName, prev.currentWeek, prev.isGoverning);
+      const isGovMinister = prev.isGoverning; // simplified, in future detect Minister sponsor explicitly
+      const billType = isGovMinister ? 'government' : 'private_member';
+      const newBill = createPlayerBill(title, description, topic, fiscalImpact, prev.playerPartyId, prev.playerName, prev.currentWeek, prev.isGoverning, billType);
       setBills(prevBills => [newBill, ...prevBills]);
       return prev;
     });
@@ -595,7 +615,92 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   const callOppositionDay = useCallback(() => {
     setGameState(prev => {
       if (!prev) return prev;
-      return { ...prev, stats: { ...prev.stats, partyStanding: Math.min(95, prev.stats.partyStanding + 3) } };
+      if (prev.oppositionDaysAvailable <= 0) return prev;
+      const used = (prev.oppositionDaysUsed || 0) + 1;
+      return {
+        ...prev,
+        oppositionDaysUsed: used,
+        oppositionDaysAvailable: Math.max(0, prev.oppositionDaysAvailable - 1),
+        stats: { ...prev.stats, partyStanding: Math.min(95, prev.stats.partyStanding + 4) },
+        currentEvents: [{
+          id: `opposition_day_${prev.currentWeek}`,
+          week: prev.currentWeek,
+          title: 'Opposition Day Motion',
+          description: 'The Official Opposition controls today\'s agenda and debates a policy motion of their choosing.',
+          type: 'political',
+          urgency: 'medium',
+          expires: prev.currentWeek + 1,
+          choices: [
+            { id: 'opp_day_success', label: 'Score a win', description: 'Strengthen your narrative and force a tough vote.', effects: { partyStanding: 3, approvalRating: 1 }, newsHeadline: 'Opposition Day motion gains momentum' },
+            { id: 'opp_day_blocked', label: 'Government blocks', description: 'Government tumbles the motion and stains your image.', effects: { partyStanding: -1, approvalRating: 2 }, newsHeadline: 'Government blocks Opposition Day motion' },
+          ],
+        }, ...prev.currentEvents].slice(0, 4),
+      };
+    });
+  }, []);
+
+  const launchCommitteeStudy = useCallback((committeeId: string, topic: string) => {
+    setGameState(prev => {
+      if (!prev) return prev;
+      const committees = prev.committees.map(c => {
+        if (c.id !== committeeId) return c;
+        return launchCommitteeStudyService(c, topic, prev.currentWeek);
+      });
+      return { ...prev, committees, stats: { ...prev.stats, partyStanding: Math.min(98, prev.stats.partyStanding + 2) } };
+    });
+  }, []);
+
+  const assignBillToCommittee = useCallback((committeeId: string, billId: string) => {
+    setGameState(prev => {
+      if (!prev) return prev;
+      const committees = prev.committees.map(c => c.id === committeeId ? assignBillToCommitteeService(c, bills.find(b => b.id === billId)!) : c);
+      return { ...prev, committees };
+    });
+  }, [bills]);
+
+  const addBillAmendment = useCallback((billId: string, amendment: string) => {
+    setBills(prev => prev.map(b => b.id === billId ? { ...b, amendments: [...b.amendments, amendment] } : b));
+  }, []);
+
+  const whipMPs = useCallback((billId: string) => {
+    // Whip process causes party loyalty shifts and can trigger rebels
+    setGameState(prev => {
+      if (!prev) return prev;
+      const bill = bills.find(b => b.id === billId);
+      if (!bill) return prev;
+      const updatedRoster = prev.mpRoster.map(mp => {
+        if (mp.status !== 'active') return mp;
+        const roll = Math.random();
+        if (mp.loyalty < 40 && roll < 0.35) {
+          return { ...mp, status: 'rebellious' };
+        }
+        if (mp.loyalty > 75 && roll > 0.15) {
+          return { ...mp, loyalty: Math.min(100, mp.loyalty + 3) };
+        }
+        return mp;
+      });
+      return {
+        ...prev,
+        mpRoster: updatedRoster,
+        stats: { ...prev.stats, governmentApproval: Math.max(0, Math.min(95, prev.stats.governmentApproval + 1)) },
+      };
+    });
+  }, [bills]);
+
+  const offerFloorCrossing = useCallback((mpId: string, targetPartyId: string) => {
+    setGameState(prev => {
+      if (!prev) return prev;
+      const updatedRoster = prev.mpRoster.map(mp => {
+        if (mp.id !== mpId || mp.status === 'expelled') return mp;
+        const success = Math.random() < (mp.loyalty < 50 ? 0.6 : 0.3);
+        if (!success) return mp;
+        return { ...mp, partyId: targetPartyId, status: 'crossed', loyalty: 50 };
+      });
+      return {
+        ...prev,
+        mpRoster: updatedRoster,
+        stats: { ...prev.stats, partyStanding: Math.min(95, prev.stats.partyStanding + 2) },
+      };
     });
   }, []);
 

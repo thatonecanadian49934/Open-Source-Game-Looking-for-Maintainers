@@ -45,6 +45,7 @@ export default function DashboardScreen() {
   const playerSeats = gameState.seats[gameState.playerPartyId] || 0;
   const govStatus = playerSeats >= MAJORITY_SEATS ? 'Majority Government' :
     gameState.isGoverning ? 'Minority Government' : 'Official Opposition';
+  const showThisWeekInParliament = gameState.currentWeek % 8 === 0;
 
   const year = 2025 + Math.floor(gameState.totalWeeks / 52);
 
@@ -389,7 +390,7 @@ export default function DashboardScreen() {
         ) : null}
 
         {/* Events — role-specific */}
-        {gameState.currentEvents.length > 0 ? (
+        {showThisWeekInParliament && gameState.currentEvents.length > 0 ? (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>
               {gameState.isGoverning ? 'THIS WEEK IN PARLIAMENT — GOVERN' : 'THIS WEEK IN PARLIAMENT — OPPOSE'}
