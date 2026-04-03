@@ -382,6 +382,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       // Advance active wars each week — update casualties, land, popularity
       setActiveWars(prevWars => {
         const wars = prevWars || [];
+        if (!Array.isArray(wars)) return [];
         return wars.map(w => {
           const weeklyLand = w.strategy === 'shock_and_awe' ? 4 + Math.random() * 4
             : w.strategy === 'siege' ? 2 + Math.random() * 2
