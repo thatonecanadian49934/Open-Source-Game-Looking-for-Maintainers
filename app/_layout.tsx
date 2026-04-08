@@ -1,4 +1,4 @@
-// Powered by OnSpace.AI
+// Powered by OnSpace.AI — Updated _layout with all new screens
 import { AlertProvider } from '@/template';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Stack } from 'expo-router';
@@ -43,6 +43,9 @@ export default function RootLayout() {
             <Stack.Screen name="senate-appointments" options={{ presentation: 'modal' }} />
             <Stack.Screen name="order-in-council" options={{ presentation: 'modal' }} />
             <Stack.Screen name="accountability" options={{ presentation: 'modal' }} />
+            <Stack.Screen name="standing-committee" options={{ presentation: 'modal' }} />
+            <Stack.Screen name="supply-opposition-days" options={{ presentation: 'modal' }} />
+            <Stack.Screen name="speaker-election" options={{ animation: 'slide_from_bottom' }} />
           </Stack>
         </GameProvider>
       </SafeAreaProvider>

@@ -94,7 +94,7 @@ export default function CreateBillScreen() {
       ? `${description.trim()}\n\n--- BILL TEXT ---\n${fullText.trim()}`
       : description.trim();
 
-    createBill(billTitle, fullDescription, topic, fiscalImpact.trim() || 'Fiscal impact TBD');
+    createBill(billTitle, fullDescription, topic, fiscalImpact.trim() || 'Fiscal impact TBD', sponsor && isGoverning && selectedSponsor ? sponsor : undefined);
 
     const autoNote = isGoverning && !selectedSponsor && !customMPName.trim()
       ? `\n\nNo minister selected — automatically assigned to ${sponsor} as a Private Member's Bill.`

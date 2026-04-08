@@ -10,6 +10,7 @@ interface BillCardProps {
   bill: Bill;
   onVote?: (vote: 'yea' | 'nay' | 'abstain') => void;
   onAccelerate?: () => void;
+  onPrioritize?: () => void;
   onPress?: () => void;
   isExpanded?: boolean;
 }
@@ -22,11 +23,10 @@ const TYPE_COLORS: Record<string, string> = {
 
 const TYPE_LABELS: Record<string, string> = {
   government: "GOV'T BILL",
-  private_member: 'PRIVATE',
-  opposition: 'OPPOSITION',
+  private_member: 'PMB',
 };
 
-export const BillCard = React.memo(function BillCard({ bill, onVote, onAccelerate, onPress, isExpanded }: BillCardProps) {
+export const BillCard = React.memo(function BillCard({ bill, onVote, onAccelerate, onPrioritize, onPress, isExpanded }: BillCardProps) {
   const party = PARTIES.find(p => p.id === bill.sponsorParty);
   const typeColor = TYPE_COLORS[bill.type] || Colors.textSecondary;
   const progress = getStageProgress(bill);
@@ -66,6 +66,12 @@ export const BillCard = React.memo(function BillCard({ bill, onVote, onAccelerat
             <View style={styles.acceleratedBadge}>
               <MaterialCommunityIcons name="fast-forward" size={8} color={Colors.error} />
               <Text style={styles.acceleratedText}>CLOSURE</Text>
+            </View>
+          ) : null}
+          {(bill as any).prioritized ? (
+            <View style={[styles.acceleratedBadge, { backgroundColor: Colors.success + '22', borderColor: Colors.success + '44' }]}>
+              <MaterialCommunityIcons name="arrow-up-circle" size={8} color={Colors.success} />
+              <Text style={[styles.acceleratedText, { color: Colors.success }]}>PRIORITY</Text>
             </View>
           ) : null}
         </View>
@@ -181,7 +187,7 @@ export const BillCard = React.memo(function BillCard({ bill, onVote, onAccelerat
         </View>
       ) : null}
 
-      {/* Accelerate button */}
+      {/* Accelerate button (government) */}
       {onAccelerate && !isDefeated && !isPassed ? (
         <Pressable
           onPress={onAccelerate}
@@ -189,6 +195,17 @@ export const BillCard = React.memo(function BillCard({ bill, onVote, onAccelerat
         >
           <MaterialCommunityIcons name="fast-forward" size={13} color={Colors.warning} />
           <Text style={styles.accelerateText}>Invoke Closure — Force Immediate Vote</Text>
+        </Pressable>
+      ) : null}
+
+      {/* Prioritize button (opposition) */}
+      {onPrioritize && !isDefeated && !isPassed ? (
+        <Pressable
+          onPress={onPrioritize}
+          style={({ pressed }) => [styles.accelerateBtn, { borderColor: Colors.success + '55', backgroundColor: Colors.success + '11' }, pressed && { opacity: 0.7 }]}
+        >
+          <MaterialCommunityIcons name="arrow-up-circle" size={13} color={Colors.success} />
+          <Text style={[styles.accelerateText, { color: Colors.success }]}>Prioritize — Force Opposition Vote</Text>
         </Pressable>
       ) : null}
 

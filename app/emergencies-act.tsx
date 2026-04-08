@@ -1,5 +1,3 @@
-// Powered by OnSpace.AI — Emergencies Act (based on actual Canadian Emergencies Act 1988)
-// PM-only standalone screen: toggle real emergency types and orders, parliamentary safeguards
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, Pressable, TextInput,
@@ -264,16 +262,23 @@ const PARLIAMENTARY_SAFEGUARDS: ParliamentarySafeguard[] = [
 export default function EmergenciesActScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { gameState, issuePressStatement, executeForeignPolicy } = useGame();
+  const { gameState, issuePressStatement, executeForeignPolicy, emergencyActState, updateEmergencyActState } = useGame();
   const { showAlert } = useAlert();
   const supabase = getSupabaseClient();
 
-  const [actStatus, setActStatus] = useState<ActStatus>('not_invoked');
-  const [selectedType, setSelectedType] = useState<EmergencyType | null>(null);
+  // Local UI state
+  const [actStatus, setActStatus] = useState<ActStatus>(
+    emergencyActState?.isActive ? 'invoked' : 'not_invoked'
+  );
+  const [selectedType, setSelectedType] = useState<EmergencyType | null>(
+    emergencyActState?.type as EmergencyType | null
+  );
   const [orders, setOrders] = useState<EmergencyOrder[]>(ALL_ORDERS);
   const [safeguards, setSafeguards] = useState<ParliamentarySafeguard[]>(PARLIAMENTARY_SAFEGUARDS);
   const [justification, setJustification] = useState('');
-  const [weeksActive, setWeeksActive] = useState(0);
+  const [weeksActive, setWeeksActive] = useState(
+    emergencyActState?.isActive ? (gameState?.currentWeek || 0) - (emergencyActState.weekInvoked || 0) + 1 : 0
+  );
   const [parliamentVoteResult, setParliamentVoteResult] = useState<{ house: boolean; senate: boolean } | null>(null);
   const [loadingAI, setLoadingAI] = useState(false);
 
@@ -333,6 +338,7 @@ export default function EmergenciesActScreen() {
     setSafeguards(prev => prev.map(s => s.id === id ? { ...s, completed: !s.completed } : s));
   };
 
+  // Keep GameContext in sync
   const handleInvokeAct = () => {
     if (!selectedType) {
       showAlert('Select Emergency Type', 'Choose one of the four emergency types defined under the Emergencies Act.');
@@ -343,24 +349,36 @@ export default function EmergenciesActScreen() {
       return;
     }
     if (!justification.trim() || justification.trim().split(/\s+/).filter(Boolean).length < 20) {
-      showAlert('Justification Required', 'Provide a formal justification of at least 20 words explaining how the legal threshold is met.');
+      showAlert('Justification Required', 'Provide a formal justification of at least 20 words.');
       return;
     }
 
     const typeData = EMERGENCY_TYPES[selectedType];
     const highRiskOrders = selectedOrders.filter(o => o.constitutionalRisk > 70);
+    const maxWeeks = Math.ceil(typeData.expiryDays / 7);
 
     showAlert(
       'Invoke the Emergencies Act?',
-      `Emergency Type: ${typeData.label}\n\nOrders enabled: ${selectedOrders.length}\nConstitutional risk: ${avgRisk}%\nApproval impact: ${totalApprovalImpact}%\n${highRiskOrders.length > 0 ? `\n⚠️ ${highRiskOrders.length} high-risk order(s) will face immediate Charter challenges.\n` : ''}\nParliament must confirm within 7 days. Either chamber can revoke the declaration at any time.\n\nAre you certain?`,
+      `Emergency Type: ${typeData.label}\n\nOrders enabled: ${selectedOrders.length}\nConstitutional risk: ${avgRisk}%\nApproval impact: ${totalApprovalImpact}%\nMax duration: ${maxWeeks} weeks${highRiskOrders.length > 0 ? `\n\n⚠️ ${highRiskOrders.length} high-risk order(s) will face immediate Charter challenges.` : ''}\n\nParliament must confirm within 7 days. Either chamber can revoke at any time.\n\nAre you certain?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'INVOKE EMERGENCIES ACT',
           style: 'destructive',
           onPress: () => {
+            const weekInvoked = gameState?.currentWeek || 0;
+            const weekExpires = weekInvoked + maxWeeks;
             setActStatus('invoked');
             setWeeksActive(1);
+            // Persist to GameContext so it spans weeks
+            updateEmergencyActState?.({
+              isActive: true,
+              type: selectedType,
+              weekInvoked,
+              weekExpires,
+              orders: selectedOrders.map(o => o.label),
+              parliamentConfirmed: false,
+            });
             issuePressStatement(`The Government of Canada has invoked the Emergencies Act — ${typeData.label}. The following emergency orders are now in effect: ${selectedOrders.map(o => o.label).join(', ')}. Parliament has been notified and will be recalled within 7 days for confirmation.`);
             executeForeignPolicy?.('emergency_act', 'domestic', totalApprovalImpact, 0);
           },
@@ -396,6 +414,15 @@ export default function EmergenciesActScreen() {
           text: 'Lift Act',
           onPress: () => {
             setActStatus('lifted');
+            // Clear from GameContext
+            updateEmergencyActState?.({
+              isActive: false,
+              type: null,
+              weekInvoked: 0,
+              weekExpires: 0,
+              orders: [],
+              parliamentConfirmed: false,
+            });
             issuePressStatement('The Prime Minister has revoked the declaration of emergency. The Emergencies Act is no longer in force. All emergency orders have ceased to have effect. A public inquiry will be initiated within 60 days.');
           },
         },

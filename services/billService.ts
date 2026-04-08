@@ -1,4 +1,5 @@
-// Powered by OnSpace.AI
+// Powered by OnSpace.AI — Updated bill service
+// Government bills = only minister-sponsored; all others = Private Members Bills
 export type BillStage =
   | 'house_first_reading'
   | 'house_second_reading'
@@ -11,7 +12,8 @@ export type BillStage =
   | 'royal_assent'
   | 'defeated';
 
-export type BillType = 'government' | 'private_member' | 'opposition';
+// UPDATED: Only 'government' (minister-introduced) | 'private_member' (all others including opposition)
+export type BillType = 'government' | 'private_member';
 
 export interface BillVoteRecord {
   stage: BillStage;
@@ -35,17 +37,18 @@ export interface Bill {
   votesAgainst: number;
   playerVote: 'yea' | 'nay' | 'abstain' | null;
   accelerated: boolean;
+  prioritized: boolean;   // opposition can prioritize their PMBs
   weeksAtStage: number;
-  defaultStageWeeks: number; // 6 weeks default per stage
+  defaultStageWeeks: number;
   amendments: string[];
   isPlayerBill: boolean;
   topic: string;
   fiscalImpact: string;
   passed: boolean;
   voteHistory: BillVoteRecord[];
-  // Progress within pipeline — readable label for each stage
   stageWeeksRemaining: number;
   scheduledVoteWeek: number | null;
+  isMinisterSponsored: boolean; // true = government bill (minister introduced)
 }
 
 export const BILL_STAGE_NAMES: Record<BillStage, string> = {
@@ -74,7 +77,6 @@ export const BILL_STAGE_SHORT: Record<BillStage, string> = {
   defeated:             'Dead',
 };
 
-// The ordered legislative pipeline — does NOT include terminal states
 export const BILL_STAGE_ORDER: BillStage[] = [
   'house_first_reading',
   'house_second_reading',
@@ -87,7 +89,6 @@ export const BILL_STAGE_ORDER: BillStage[] = [
   'royal_assent',
 ];
 
-// Which stages require a formal vote
 export const VOTE_STAGES: Set<BillStage> = new Set([
   'house_second_reading',
   'house_third_reading',
@@ -95,7 +96,6 @@ export const VOTE_STAGES: Set<BillStage> = new Set([
   'senate_third_reading',
 ]);
 
-// Which stages are debating stages that can be accelerated
 export const ACCELERATABLE_STAGES: Set<BillStage> = new Set([
   'house_first_reading',
   'house_second_reading',
@@ -109,7 +109,8 @@ export const ACCELERATABLE_STAGES: Set<BillStage> = new Set([
 
 export const DEFAULT_STAGE_WEEKS = 6;
 
-export const SAMPLE_BILLS: Omit<Bill, 'id' | 'introducedWeek' | 'stageStartWeek' | 'playerVote' | 'votesFor' | 'votesAgainst' | 'weeksAtStage' | 'voteHistory' | 'stageWeeksRemaining' | 'scheduledVoteWeek'>[] = [
+// Updated sample bills — government bills are minister-sponsored only
+export const SAMPLE_BILLS: Omit<Bill, 'id' | 'introducedWeek' | 'stageStartWeek' | 'playerVote' | 'votesFor' | 'votesAgainst' | 'weeksAtStage' | 'voteHistory' | 'stageWeeksRemaining' | 'scheduledVoteWeek' | 'prioritized'>[] = [
   {
     title: 'Bill C-42: Carbon Border Adjustment Mechanism Act',
     description: 'Implements a carbon border adjustment to level the playing field for Canadian manufacturers competing against countries without equivalent carbon pricing.',
@@ -124,14 +125,15 @@ export const SAMPLE_BILLS: Omit<Bill, 'id' | 'introducedWeek' | 'stageStartWeek'
     topic: 'Environment',
     fiscalImpact: '+$2.1B over 5 yrs',
     passed: false,
+    isMinisterSponsored: true,
   },
   {
     title: 'Bill C-88: National Pharmacare Act',
     description: 'Establishes a universal single-payer national pharmacare program covering all prescription medications for Canadian residents.',
     type: 'government',
     stage: 'house_committee',
-    sponsorParty: 'ndp',
-    sponsorName: 'Rachel Lavoie, NDP Leader',
+    sponsorParty: 'liberal',
+    sponsorName: 'Hon. David Park, Minister of Health',
     accelerated: false,
     defaultStageWeeks: DEFAULT_STAGE_WEEKS,
     amendments: ['Exclude brand-name drugs in phase 1', 'Require provincial opt-in mechanism'],
@@ -139,6 +141,7 @@ export const SAMPLE_BILLS: Omit<Bill, 'id' | 'introducedWeek' | 'stageStartWeek'
     topic: 'Health',
     fiscalImpact: '-$15B/yr',
     passed: false,
+    isMinisterSponsored: true,
   },
   {
     title: 'Bill C-15: Online Harms Reduction Act',
@@ -154,6 +157,7 @@ export const SAMPLE_BILLS: Omit<Bill, 'id' | 'introducedWeek' | 'stageStartWeek'
     topic: 'Justice',
     fiscalImpact: 'Neutral',
     passed: false,
+    isMinisterSponsored: true,
   },
   {
     title: "Private Members' Bill C-398: Housing Affordability Act",
@@ -169,14 +173,15 @@ export const SAMPLE_BILLS: Omit<Bill, 'id' | 'introducedWeek' | 'stageStartWeek'
     topic: 'Housing',
     fiscalImpact: '-$4.2B/yr',
     passed: false,
+    isMinisterSponsored: false,
   },
   {
-    title: 'Bill C-71: Canadian Sovereignty and Security Act',
+    title: "Private Members' Bill C-71: Canadian Sovereignty and Security Act",
     description: 'Strengthens national security protocols against foreign interference in democratic institutions.',
-    type: 'opposition',
+    type: 'private_member',
     stage: 'senate_second_reading',
     sponsorParty: 'conservative',
-    sponsorName: 'Pierre Fontaine, CPC Leader',
+    sponsorName: 'MP Pierre Fontaine (CPC)',
     accelerated: false,
     defaultStageWeeks: DEFAULT_STAGE_WEEKS,
     amendments: ['Expanding CSIS surveillance powers'],
@@ -184,6 +189,7 @@ export const SAMPLE_BILLS: Omit<Bill, 'id' | 'introducedWeek' | 'stageStartWeek'
     topic: 'Security',
     fiscalImpact: '+$500M/yr',
     passed: false,
+    isMinisterSponsored: false,
   },
   {
     title: "Private Members' Bill C-201: Anti-Scab Labour Act",
@@ -199,6 +205,7 @@ export const SAMPLE_BILLS: Omit<Bill, 'id' | 'introducedWeek' | 'stageStartWeek'
     topic: 'Labour',
     fiscalImpact: 'Neutral',
     passed: false,
+    isMinisterSponsored: false,
   },
 ];
 
@@ -217,6 +224,7 @@ export function initializeBills(currentWeek: number): Bill[] {
       votesFor: 100 + Math.floor(Math.random() * 80),
       votesAgainst: 70 + Math.floor(Math.random() * 80),
       weeksAtStage,
+      prioritized: false,
       voteHistory: [],
       stageWeeksRemaining,
       scheduledVoteWeek: stageWeeksRemaining === 0 ? currentWeek : null,
@@ -236,7 +244,8 @@ export function advanceBills(
     if (bill.stage === 'royal_assent' || bill.stage === 'defeated') return bill;
 
     const weeksAtStage = currentWeek - bill.stageStartWeek;
-    const effectiveWeeks = bill.accelerated ? bill.defaultStageWeeks + 1 : bill.defaultStageWeeks;
+    // Prioritized PMBs advance faster (like closure)
+    const effectiveWeeks = bill.accelerated || bill.prioritized ? bill.defaultStageWeeks + 1 : bill.defaultStageWeeks;
     const shouldAdvance = weeksAtStage >= effectiveWeeks;
     const stageWeeksRemaining = Math.max(0, effectiveWeeks - weeksAtStage);
 
@@ -247,7 +256,6 @@ export function advanceBills(
     const currentIdx = BILL_STAGE_ORDER.indexOf(bill.stage);
     if (currentIdx === -1) return bill;
 
-    // Stages that require a vote
     const requiresVote = VOTE_STAGES.has(bill.stage);
 
     if (requiresVote) {
@@ -261,36 +269,7 @@ export function advanceBills(
         majority: result.passed,
       };
 
-      // Key defeat points: 2nd reading (House), 3rd reading (House), 3rd reading (Senate)
-      if (!result.passed && (bill.stage === 'house_third_reading' || bill.stage === 'senate_third_reading')) {
-        return {
-          ...bill,
-          stage: 'defeated',
-          weeksAtStage,
-          votesFor: result.yea,
-          votesAgainst: result.nay,
-          voteHistory: [...bill.voteHistory, voteRecord],
-          stageWeeksRemaining: 0,
-          scheduledVoteWeek: null,
-        };
-      }
-
-      // Failed 2nd reading — send back to committee or defeat
-      if (!result.passed && bill.stage === 'house_second_reading') {
-        return {
-          ...bill,
-          stage: 'defeated',
-          weeksAtStage,
-          votesFor: result.yea,
-          votesAgainst: result.nay,
-          voteHistory: [...bill.voteHistory, voteRecord],
-          stageWeeksRemaining: 0,
-          scheduledVoteWeek: null,
-        };
-      }
-
-      if (!result.passed && bill.stage === 'senate_second_reading') {
-        // Senate can defeat here too
+      if (!result.passed && (bill.stage === 'house_third_reading' || bill.stage === 'senate_third_reading' || bill.stage === 'house_second_reading' || bill.stage === 'senate_second_reading')) {
         return {
           ...bill,
           stage: 'defeated',
@@ -304,7 +283,6 @@ export function advanceBills(
       }
 
       const nextStage = BILL_STAGE_ORDER[currentIdx + 1] as BillStage;
-      const isPassed = nextStage === 'royal_assent' || currentIdx + 1 >= BILL_STAGE_ORDER.length - 1;
 
       return {
         ...bill,
@@ -316,12 +294,13 @@ export function advanceBills(
         passed: nextStage === 'royal_assent',
         voteHistory: [...bill.voteHistory, voteRecord],
         accelerated: false,
+        prioritized: false,
         stageWeeksRemaining: DEFAULT_STAGE_WEEKS,
         scheduledVoteWeek: null,
       };
     }
 
-    // Non-vote stage — auto advance (1st reading, committee)
+    // Non-vote stage — auto advance
     const nextStage = BILL_STAGE_ORDER[currentIdx + 1] as BillStage || 'royal_assent';
     return {
       ...bill,
@@ -330,6 +309,7 @@ export function advanceBills(
       weeksAtStage: 0,
       passed: nextStage === 'royal_assent',
       accelerated: false,
+      prioritized: false,
       stageWeeksRemaining: DEFAULT_STAGE_WEEKS,
       scheduledVoteWeek: null,
     };
@@ -343,28 +323,23 @@ function simulateParliamentaryVote(
   totalSeats: number,
   isGoverning: boolean
 ): { passed: boolean; yea: number; nay: number } {
-  // Player vote influence: if player voted, 85% of their party follows
   const playerVoteYea = bill.playerVote === 'yea';
   const playerVoteNay = bill.playerVote === 'nay';
 
-  // Base support probability by bill type and governing status
   let baseSupportProb: number;
-  if (bill.type === 'government') {
+  if (bill.type === 'government' && bill.isMinisterSponsored) {
     baseSupportProb = isGoverning ? 0.72 : 0.38;
-  } else if (bill.type === 'private_member') {
-    baseSupportProb = 0.50 + (Math.random() * 0.2 - 0.1);
   } else {
-    // opposition bill
-    baseSupportProb = isGoverning ? 0.35 : 0.60;
+    // All PMBs (including opposition) — free vote, more variable
+    baseSupportProb = 0.45 + (Math.random() * 0.25 - 0.1);
+    // Prioritized opposition PMBs get a small boost
+    if (bill.prioritized && !isGoverning) baseSupportProb += 0.08;
   }
 
-  // Player vote shifts the base probability
   if (playerVoteYea) baseSupportProb = Math.min(0.95, baseSupportProb + 0.12);
   if (playerVoteNay) baseSupportProb = Math.max(0.05, baseSupportProb - 0.12);
 
-  // Randomise slightly
   const finalProb = Math.max(0.02, Math.min(0.98, baseSupportProb + (Math.random() * 0.14 - 0.07)));
-
   const yea = Math.round(totalSeats * finalProb);
   const nay = totalSeats - yea;
 
@@ -372,10 +347,19 @@ function simulateParliamentaryVote(
 }
 
 export function accelerateBillNow(bill: Bill, currentWeek: number): Bill {
-  // Government can force a vote immediately — set stage to expire this week
   return {
     ...bill,
     accelerated: true,
+    stageStartWeek: currentWeek - bill.defaultStageWeeks,
+    stageWeeksRemaining: 0,
+    scheduledVoteWeek: currentWeek,
+  };
+}
+
+export function prioritizeBillNow(bill: Bill, currentWeek: number): Bill {
+  return {
+    ...bill,
+    prioritized: true,
     stageStartWeek: currentWeek - bill.defaultStageWeeks,
     stageWeeksRemaining: 0,
     scheduledVoteWeek: currentWeek,
@@ -388,24 +372,26 @@ export function createPlayerBill(
   topic: string,
   fiscalImpact: string,
   playerPartyId: string,
-  playerName: string,
+  sponsorName: string,
   currentWeek: number,
-  isGoverning: boolean
+  isGovernmentBill: boolean
 ): Bill {
   return {
     id: `player_bill_${Date.now()}`,
     title,
     description,
-    type: isGoverning ? 'government' : 'private_member',
+    // Government bill ONLY if governing AND minister selected
+    type: isGovernmentBill ? 'government' : 'private_member',
     stage: 'house_first_reading',
     introducedWeek: currentWeek,
     stageStartWeek: currentWeek,
     sponsorParty: playerPartyId,
-    sponsorName: playerName,
+    sponsorName: sponsorName,
     votesFor: 0,
     votesAgainst: 0,
     playerVote: 'yea',
     accelerated: false,
+    prioritized: false,
     defaultStageWeeks: DEFAULT_STAGE_WEEKS,
     weeksAtStage: 0,
     amendments: [],
@@ -416,6 +402,7 @@ export function createPlayerBill(
     voteHistory: [],
     stageWeeksRemaining: DEFAULT_STAGE_WEEKS,
     scheduledVoteWeek: null,
+    isMinisterSponsored: isGovernmentBill,
   };
 }
 
@@ -424,8 +411,6 @@ export function getStageProgress(bill: Bill): number {
   if (bill.stage === 'defeated') return 0;
   const idx = BILL_STAGE_ORDER.indexOf(bill.stage);
   if (idx === -1) return 0;
-  // Progress = stage index + fractional progress within stage
-  const stageProgress = idx / (BILL_STAGE_ORDER.length - 1);
   const withinStage = Math.min(1, bill.weeksAtStage / bill.defaultStageWeeks);
   return Math.min(99, ((idx + withinStage) / (BILL_STAGE_ORDER.length - 1)) * 100);
 }
@@ -458,4 +443,14 @@ export function getPipelineSteps(): { stage: BillStage; label: string; chamber: 
     { stage: 'senate_third_reading', label: '3rd Reading',  chamber: 'senate' },
     { stage: 'royal_assent',         label: 'Royal Assent', chamber: 'crown' },
   ];
+}
+
+export function getBillTypeLabel(bill: Bill): string {
+  if (bill.type === 'government' && bill.isMinisterSponsored) return 'Government Bill';
+  return "Private Member's Bill";
+}
+
+export function getBillTypeColor(bill: Bill): string {
+  if (bill.type === 'government' && bill.isMinisterSponsored) return '#D71920'; // liberal red
+  return '#3B82F6'; // info blue for PMBs
 }
