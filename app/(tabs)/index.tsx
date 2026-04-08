@@ -194,23 +194,23 @@ export default function DashboardScreen() {
         </View>
       </View>
 
-      {/* Speaker banner — only show if speaker has never been elected AND parliament has been at week 1 for a new session */}
-      {!speakerName ? (
+      {/* Speaker banner */}
+      {!speakerName && gameState.parliamentNumber >= 45 ? (
         <Pressable
           onPress={() => router.push('/speaker-election')}
           style={({ pressed }) => [styles.speakerBanner, pressed && { opacity: 0.85 }]}
         >
           <MaterialCommunityIcons name="gavel" size={14} color={Colors.gold} />
-          <Text style={styles.speakerBannerText}>No Speaker elected for this Parliament — tap to elect the Speaker.</Text>
+          <Text style={styles.speakerBannerText}>No Speaker elected — Parliament cannot sit. Elect the Speaker now.</Text>
           <MaterialCommunityIcons name="chevron-right" size={14} color={Colors.gold} />
         </Pressable>
-      ) : (
+      ) : speakerName ? (
         <View style={styles.speakerElected}>
           <MaterialCommunityIcons name="gavel" size={12} color={Colors.textMuted} />
           <Text style={styles.speakerElectedText}>Speaker: {speakerName}</Text>
           {lastAutosaveTime ? <Text style={styles.autosaveIndicator}>Autosaved {lastAutosaveTime}</Text> : null}
         </View>
-      )}
+      ) : null}
 
       <ScrollView
         style={styles.scrollView}
@@ -378,20 +378,6 @@ export default function DashboardScreen() {
           <Text style={styles.sectionTitle}>ACTIONS THIS WEEK</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             <View style={styles.actionsRow}>
-              <Pressable onPress={() => router.push('/party-whip')} style={({ pressed }) => [styles.actionBtn, pressed && { opacity: 0.8 }]}>
-                <MaterialCommunityIcons name="account-group" size={22} color={Colors.warning} />
-                <Text style={styles.actionText}>Party Whip</Text>
-              </Pressable>
-              <Pressable onPress={() => router.push('/riding-management')} style={({ pressed }) => [styles.actionBtn, pressed && { opacity: 0.8 }]}>
-                <MaterialCommunityIcons name="map-marker-multiple" size={22} color={Colors.info} />
-                <Text style={styles.actionText}>Riding Mgmt</Text>
-              </Pressable>
-              {(activeWars?.length || 0) > 0 ? (
-                <Pressable onPress={() => router.push('/peace-negotiations')} style={({ pressed }) => [styles.actionBtn, styles.actionBtnDanger, pressed && { opacity: 0.8 }]}>
-                  <MaterialCommunityIcons name="peace" size={22} color={Colors.success} />
-                  <Text style={[styles.actionText, { color: Colors.success }]}>Peace Talks</Text>
-                </Pressable>
-              ) : null}
               <Pressable onPress={() => router.push('/press-statement')} style={({ pressed }) => [styles.actionBtn, pressed && { opacity: 0.8 }]}>
                 <MaterialCommunityIcons name="microphone" size={22} color={Colors.gold} />
                 <Text style={styles.actionText}>Press Statement</Text>

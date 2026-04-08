@@ -223,7 +223,7 @@ export interface GameContextType {
   setSupplyPassed?: (passed: boolean) => void;
 
   // Speaker
-  electSpeaker: (name: string) => void;
+  electSpeaker?: (name: string) => void;
 }
 
 export const GameContext = createContext<GameContextType | undefined>(undefined);
@@ -677,13 +677,13 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         advanceBills(prevBills, newState.currentWeek, newState.playerPartyId, newState.seats[newState.playerPartyId] || 0, TOTAL_SEATS, newState.isGoverning)
       );
 
-      // Fetch AI events for next week (RARE — 20% chance to show parliament events)
-      if (Math.random() < 0.20) {
+      // Fetch AI events for next week (RARE — 30% chance to show parliament events)
+      if (Math.random() < 0.3) {
         fetchAIWeeklyEvents(newState).then(aiEvents => {
           if (aiEvents.length > 0) {
             setGameState(gs => {
               if (!gs) return gs;
-              return { ...gs, currentEvents: aiEvents.slice(0, 1) }; // max 1 AI event
+              return { ...gs, currentEvents: aiEvents.slice(0, 2) };
             });
           }
         });
@@ -693,7 +693,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         setGameState(gs => {
           if (!gs) return gs;
           const criticalOnly = gs.currentEvents.filter(e => e.urgency === 'critical');
-          return { ...gs, currentEvents: criticalOnly.slice(0, 1) };
+          return { ...gs, currentEvents: criticalOnly.slice(0, 2) };
         });
       }
 
@@ -964,7 +964,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
 
   // ── Speaker ──────────────────────────────────────────────────────────────────
   const electSpeaker = useCallback((name: string) => {
-    setSpeakerName(name || 'The Speaker');
+    setSpeakerName(name);
   }, []);
 
   // ── By-Election ────────────────────────────────────────────────────────────
@@ -1013,24 +1013,8 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     setGameState(prev => {
       if (!prev) return prev;
       const { totalSeats, playerSeats, playerVotePct } = preComputedResult;
-      // Find the party with the most seats to determine government
-      const seatEntries = Object.entries(totalSeats).filter(([, v]) => typeof v === 'number' && v > 0);
-      const maxSeats = Math.max(...seatEntries.map(([, v]) => v as number));
+      const maxSeats = Math.max(...Object.values(totalSeats).filter(v => typeof v === 'number'));
       const playerWon = playerSeats >= MAJORITY_SEATS || playerSeats === maxSeats;
-
-      // Official Opposition = party with 2nd most seats (NOT necessarily player)
-      const sortedParties = seatEntries.sort(([, a], [, b]) => (b as number) - (a as number));
-      const governingPartyId = sortedParties[0]?.[0];
-      const officialOppositionId = sortedParties[1]?.[0];
-
-      // Leadership review: harder after a loss — more likely if vote share dropped significantly
-      const prevElection = prev.electionHistory[prev.electionHistory.length - 1];
-      const votePctDrop = prevElection ? prevElection.votePct - playerVotePct : 0;
-      // Trigger leadership review if lost OR if won but with significantly reduced seat count
-      const prevSeats = prevElection?.seats[prev.playerPartyId] || 0;
-      const seatLoss = prevSeats - playerSeats;
-      const inLeadershipReview = !playerWon || (seatLoss > 20 && Math.random() < 0.4);
-
       const newProvincialSeats: Record<string, Record<string, number>> = {};
       preComputedResult.provinceResults.forEach(r => { newProvincialSeats[r.provinceCode] = r.seats; });
       const newState: GameState = {
@@ -1045,7 +1029,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         electionTriggered: false,
         currentWeek: 1,
         parliamentNumber: prev.parliamentNumber + 1,
-        inLeadershipReview,
+        inLeadershipReview: !playerWon,
         electionHistory: [...prev.electionHistory, { parliament: prev.parliamentNumber, week: prev.currentWeek, seats: totalSeats, playerSeats, won: playerWon, votePct: playerVotePct }],
         cabinet: playerWon ? prev.cabinet : [],
         confidenceVoteAvailable: !playerWon,

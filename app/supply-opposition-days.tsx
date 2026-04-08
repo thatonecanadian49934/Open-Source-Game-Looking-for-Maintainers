@@ -150,10 +150,6 @@ export default function SupplyOppositionDaysScreen() {
       showAlert('No Days Remaining', 'Your party has used all allocated opposition days for this parliamentary year.');
       return;
     }
-    if (isGoverning) {
-      showAlert('Government Cannot Use Opposition Days', 'Opposition days are allocated to opposition parties by the House schedule. The government schedules its own business through Government Orders.');
-      return;
-    }
 
     // Simulate debate and vote
     const playerSeats = gameState.seats[gameState.playerPartyId] || 0;
@@ -263,9 +259,7 @@ export default function SupplyOppositionDaysScreen() {
           </Pressable>
           <View style={{ flex: 1 }}>
             <Text style={styles.headerTitle}>Supply & Opposition Days</Text>
-            <Text style={styles.headerSub}>
-              {isGoverning ? 'Government Business of Supply' : 'Business of Supply — House of Commons'}
-            </Text>
+            <Text style={styles.headerSub}>Business of Supply — House of Commons</Text>
           </View>
           <View style={{ width: 40 }} />
         </View>
@@ -339,30 +333,19 @@ export default function SupplyOppositionDaysScreen() {
           {/* Quick navigation */}
           <Text style={styles.sectionLabel}>BUSINESS OF SUPPLY</Text>
           <View style={styles.navGrid}>
-            {!isGoverning ? (
-              <Pressable
-                onPress={() => setView('opposition_day')}
-                style={({ pressed }) => [styles.navCard, pressed && { opacity: 0.85 }]}
-              >
-                <MaterialCommunityIcons name="account-voice" size={28} color={partyColor} />
-                <Text style={styles.navCardTitle}>Opposition Day</Text>
-                <Text style={styles.navCardDesc}>Debate and vote on your chosen motion</Text>
-                <View style={[styles.navCardBadge, { backgroundColor: daysRemaining > 0 ? partyColor + '22' : Colors.error + '22' }]}>
-                  <Text style={[styles.navCardBadgeText, { color: daysRemaining > 0 ? partyColor : Colors.error }]}>
-                    {daysRemaining} days left
-                  </Text>
-                </View>
-              </Pressable>
-            ) : (
-              <View style={[styles.navCard, { opacity: 0.6 }]}>
-                <MaterialCommunityIcons name="account-voice" size={28} color={Colors.textMuted} />
-                <Text style={styles.navCardTitle}>Opposition Days</Text>
-                <Text style={styles.navCardDesc}>Allocated to opposition parties. Government schedules Government Orders.</Text>
-                <View style={[styles.navCardBadge, { backgroundColor: Colors.textMuted + '22' }]}>
-                  <Text style={[styles.navCardBadgeText, { color: Colors.textMuted }]}>Opposition Only</Text>
-                </View>
+            <Pressable
+              onPress={() => setView('opposition_day')}
+              style={({ pressed }) => [styles.navCard, pressed && { opacity: 0.85 }]}
+            >
+              <MaterialCommunityIcons name="account-voice" size={28} color={partyColor} />
+              <Text style={styles.navCardTitle}>Opposition Day</Text>
+              <Text style={styles.navCardDesc}>Debate and vote on your chosen motion</Text>
+              <View style={[styles.navCardBadge, { backgroundColor: daysRemaining > 0 ? partyColor + '22' : Colors.error + '22' }]}>
+                <Text style={[styles.navCardBadgeText, { color: daysRemaining > 0 ? partyColor : Colors.error }]}>
+                  {daysRemaining} days left
+                </Text>
               </View>
-            )}
+            </Pressable>
             <Pressable
               onPress={() => setView('estimates')}
               style={({ pressed }) => [styles.navCard, pressed && { opacity: 0.85 }]}

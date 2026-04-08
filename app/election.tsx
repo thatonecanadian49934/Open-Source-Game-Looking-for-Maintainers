@@ -271,10 +271,10 @@ export default function ElectionScreen() {
   const handleCampaignProvince = (code: string) => {
     if (!campaignState) return;
     campaignInRegion(code);
-    // Advance campaign week: 1 province = week 1, 3 provinces = week 2, 5 provinces = week 3, 7+ = week 4
-    const visitedCount = (campaignState.campaignedProvinces.length || 0) + 1;
-    const newWeek = visitedCount <= 2 ? 1 : visitedCount <= 4 ? 2 : visitedCount <= 6 ? 3 : 4;
-    setCampaignWeekLocal(newWeek);
+    // Advance campaign week after 3 provinces
+    if ((campaignState.campaignedProvinces.length + 1) % 3 === 0) {
+      setCampaignWeekLocal(prev => Math.min(4, prev + 1));
+    }
   };
 
   // ── ELECTION NIGHT ──────────────────────────────────────────────────────────

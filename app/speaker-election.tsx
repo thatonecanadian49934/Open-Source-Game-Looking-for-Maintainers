@@ -125,7 +125,7 @@ const POINTS_OF_ORDER = [
 export default function SpeakerElectionScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { gameState, electSpeaker } = useGame();
+  const { gameState } = useGame();
   const { showAlert } = useAlert();
 
   const [phase, setPhase] = useState<'intro' | 'voting' | 'results' | 'ruling'>('intro');
@@ -225,10 +225,6 @@ export default function SpeakerElectionScreen() {
       votes: roundData.map(r => r.votes[c.id] || 0),
     })));
     setCurrentRound(round);
-    // Persist the elected speaker to game context
-    if (elected) {
-      electSpeaker?.(elected.name);
-    }
     setPhase('results');
   };
 

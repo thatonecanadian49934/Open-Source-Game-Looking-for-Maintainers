@@ -278,13 +278,9 @@ function generateProvincialSeats(seats: SeatCount): ProvinceSeatCount {
 }
 
 export function generateWeeklyEvents(week: number, playerPartyId: string, isGoverning: boolean): GameEvent[] {
-  // Events are rare — only 25% chance of ANY event each week
-  // When they occur, just 1 event (max 2 for critical situations)
-  if (Math.random() > 0.25) return [];
   const allEvents = getEventPool(week, playerPartyId, isGoverning);
+  const numEvents = 1 + Math.floor(Math.random() * 3);
   const shuffled = allEvents.sort(() => Math.random() - 0.5);
-  // Only 1 event per week, rarely 2 for high urgency
-  const numEvents = Math.random() < 0.15 ? 2 : 1;
   return shuffled.slice(0, numEvents).map(e => ({ ...e, week, expires: week + 2 }));
 }
 
