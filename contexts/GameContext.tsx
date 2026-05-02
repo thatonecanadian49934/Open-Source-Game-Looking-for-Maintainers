@@ -943,7 +943,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       };
       logAction({ action: passed ? 'Government Falls' : 'Confidence Vote Survived', category: 'vote', description: result.message, severity: 'critical' });
       if (passed) {
-        const campaign = initializeCampaign(prev.playerPartyId, prev.stats);
+        const campaign = initializeCampaign(prev.playerPartyId, prev.stats, prev.currentWeek, prev.seats);
         setCampaignState(campaign);
         return { ...prev, inElection: true, electionWeek: 1, electionTriggerReason: 'confidence_vote', electionTriggered: true, confidenceVoteCooldown: 0 };
       }
@@ -955,7 +955,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   const dissolveParliament = useCallback(() => {
     setGameState(prev => {
       if (!prev || !prev.isGoverning) return prev;
-      const campaign = initializeCampaign(prev.playerPartyId, prev.stats);
+      const campaign = initializeCampaign(prev.playerPartyId, prev.stats, prev.currentWeek, prev.seats);
       setCampaignState(campaign);
       logAction({ action: 'Parliament Dissolved', category: 'election', description: 'PM calls snap election', severity: 'critical' });
       return { ...prev, inElection: true, electionWeek: 1, electionTriggerReason: 'pm_dissolution', electionTriggered: true };
@@ -1245,7 +1245,8 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     setGameState(prev => {
       if (!prev) return prev;
       if (!campaignState) {
-        const campaign = initializeCampaign(prev.playerPartyId, prev.stats);
+        // Pass current game week and seats so campaign weeks align with game weeks
+        const campaign = initializeCampaign(prev.playerPartyId, prev.stats, prev.currentWeek, prev.seats);
         setCampaignState(campaign);
       }
       return { ...prev, inElection: true, electionWeek: 1 };
@@ -1288,6 +1289,9 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       setCampaignState(null);
       if (playerWon) setShadowCabinet([]);
       setSupplyPassedState(false);
+      // SPEAKER PERMANENCE: Speaker is reset only at start of NEW parliament (new election).
+      // The Speaker elected at the beginning of a parliament serves the ENTIRE parliament.
+      // We reset here because a new parliament always requires a new Speaker election.
       setSpeakerName(null);
       setOppositionDaysUsed(0);
       logAction({ action: playerWon ? 'Election Won' : 'Election Lost', category: 'election', description: `${playerSeats} seats, ${playerVotePct.toFixed(1)}% popular vote`, severity: 'critical' });
@@ -1330,7 +1334,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   const callGoverningConfidenceVote = useCallback(() => {
     setGameState(prev => {
       if (!prev) return prev;
-      const campaign = initializeCampaign(prev.playerPartyId, prev.stats);
+      const campaign = initializeCampaign(prev.playerPartyId, prev.stats, prev.currentWeek, prev.seats);
       setCampaignState(campaign);
       return { ...prev, inElection: true, electionWeek: 1, electionTriggerReason: 'pm_dissolution', electionTriggered: true };
     });

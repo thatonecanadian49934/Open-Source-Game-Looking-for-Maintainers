@@ -225,20 +225,20 @@ export default function DashboardScreen() {
         </View>
       </View>
 
-      {/* Speaker banner */}
-      {!speakerName && gameState.parliamentNumber >= 45 ? (
+      {/* Speaker banner — only shown early in parliament if no Speaker yet */}
+      {!speakerName && gameState.currentWeek <= 4 ? (
         <Pressable
           onPress={() => router.push('/speaker-election')}
           style={({ pressed }) => [styles.speakerBanner, pressed && { opacity: 0.85 }]}
         >
           <MaterialCommunityIcons name="gavel" size={14} color={Colors.gold} />
-          <Text style={styles.speakerBannerText}>No Speaker elected — Parliament cannot sit. Elect the Speaker now.</Text>
+          <Text style={styles.speakerBannerText}>New Parliament — Elect the Speaker before the House can sit.</Text>
           <MaterialCommunityIcons name="chevron-right" size={14} color={Colors.gold} />
         </Pressable>
       ) : speakerName ? (
         <View style={styles.speakerElected}>
           <MaterialCommunityIcons name="gavel" size={12} color={Colors.textMuted} />
-          <Text style={styles.speakerElectedText}>Speaker: {speakerName}</Text>
+          <Text style={styles.speakerElectedText}>Speaker: {speakerName} (serves this parliament)</Text>
           {lastAutosaveTime ? <Text style={styles.autosaveIndicator}>Autosaved {lastAutosaveTime}</Text> : null}
         </View>
       ) : null}
