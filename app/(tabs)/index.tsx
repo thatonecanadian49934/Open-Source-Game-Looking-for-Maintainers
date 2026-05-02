@@ -23,6 +23,8 @@ export default function DashboardScreen() {
     gameState, bills, advanceWeek, callConfidenceVote, dissolveParliament,
     byElectionTrigger, dismissByElection, saveGame, whipEvents,
     judicialCases, emergencyActState, supplyPassed, speakerName, oppositionDaysUsed,
+    pendingInternationalEvent, dismissInternationalEvent, respondToInternationalEvent,
+    ethicsScandals, respondToEthicsScandal, actionLog,
   } = useGame();
   const [eventChoices, setEventChoices] = useState<Record<string, string>>({});
   const [isAdvancing, setIsAdvancing] = useState(false);
@@ -167,9 +169,38 @@ export default function DashboardScreen() {
   const pendingCases = judicialCases.filter(c => c.status !== 'decided');
   // Supply deadline warning
   const supplyDeadlineWarning = gameState.currentWeek >= 20 && !supplyPassed && gameState.isGoverning;
+  // Active ethics scandals
+  const activeScandals = ethicsScandals.filter(s => !s.playerResponse);
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
+      {/* International Event Notification Banner — appears for 5 seconds */}
+      {pendingInternationalEvent ? (
+        <Pressable
+          onPress={() => dismissInternationalEvent?.()}
+          style={styles.intlEventBanner}
+        >
+          <Text style={styles.intlEventFlag}>{pendingInternationalEvent.flag}</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.intlEventTitle}>{pendingInternationalEvent.title}</Text>
+            <Text style={styles.intlEventDesc} numberOfLines={1}>{pendingInternationalEvent.description}</Text>
+          </View>
+          <View style={styles.intlEventActions}>
+            <Pressable
+              onPress={() => respondToInternationalEvent?.(pendingInternationalEvent.id, true)}
+              style={[styles.intlEventBtn, { backgroundColor: Colors.success + '33' }]}
+            >
+              <Text style={[styles.intlEventBtnText, { color: Colors.success }]}>Accept</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => respondToInternationalEvent?.(pendingInternationalEvent.id, false)}
+              style={[styles.intlEventBtn, { backgroundColor: Colors.error + '22' }]}
+            >
+              <Text style={[styles.intlEventBtnText, { color: Colors.error }]}>Decline</Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      ) : null}
       {/* Header */}
       <View style={[styles.header, { borderBottomColor: partyColor + '44' }]}>
         <View style={styles.headerLeft}>
@@ -288,6 +319,38 @@ export default function DashboardScreen() {
           </Pressable>
         ) : null}
 
+        {/* Ethics Scandal Notification */}
+        {activeScandals.length > 0 ? (
+          <View style={styles.ethicsScandal}>
+            <MaterialCommunityIcons name="alert-octagon" size={16} color={Colors.error} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.ethicsScandalTitle}>Ethics Investigation Launched</Text>
+              <Text style={styles.ethicsScandalDesc} numberOfLines={2}>{activeScandals[0].title}</Text>
+              <Text style={styles.ethicsScandalSubject}>Subject: {activeScandals[0].subject}</Text>
+            </View>
+            <View style={styles.ethicsScandalActions}>
+              <Pressable
+                onPress={() => respondToEthicsScandal?.(activeScandals[0].id, 'fired_minister')}
+                style={[styles.ethicsBtn, { backgroundColor: Colors.error + '22' }]}
+              >
+                <Text style={[styles.ethicsBtnText, { color: Colors.error }]}>Fire</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => respondToEthicsScandal?.(activeScandals[0].id, 'inquiry')}
+                style={[styles.ethicsBtn, { backgroundColor: Colors.warning + '22' }]}
+              >
+                <Text style={[styles.ethicsBtnText, { color: Colors.warning }]}>Inquiry</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => respondToEthicsScandal?.(activeScandals[0].id, 'defended')}
+                style={[styles.ethicsBtn, { backgroundColor: Colors.info + '22' }]}
+              >
+                <Text style={[styles.ethicsBtnText, { color: Colors.info }]}>Defend</Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : null}
+
         {/* Whip events */}
         {recentWhipEvents.length > 0 ? (
           <View style={styles.whipCard}>
@@ -385,6 +448,14 @@ export default function DashboardScreen() {
               <Pressable onPress={() => router.push('/question-period')} style={({ pressed }) => [styles.actionBtn, pressed && { opacity: 0.8 }]}>
                 <MaterialCommunityIcons name="comment-question" size={22} color={Colors.info} />
                 <Text style={styles.actionText}>Question Period</Text>
+              </Pressable>
+              <Pressable onPress={() => router.push('/parliamentary-motions')} style={({ pressed }) => [styles.actionBtn, pressed && { opacity: 0.8 }]}>
+                <MaterialCommunityIcons name="file-document-edit" size={22} color={Colors.info} />
+                <Text style={styles.actionText}>Parl. Motions</Text>
+              </Pressable>
+              <Pressable onPress={() => router.push('/action-log')} style={({ pressed }) => [styles.actionBtn, pressed && { opacity: 0.8 }]}>
+                <MaterialCommunityIcons name="book-open" size={22} color={Colors.textSecondary} />
+                <Text style={styles.actionText}>Action Log</Text>
               </Pressable>
               <Pressable onPress={() => router.push('/standing-committee')} style={({ pressed }) => [styles.actionBtn, pressed && { opacity: 0.8 }]}>
                 <MaterialCommunityIcons name="account-group" size={22} color={Colors.info} />
@@ -626,6 +697,20 @@ const styles = StyleSheet.create({
   electionCountdownSub: { fontSize: FontSize.xs, color: Colors.textSecondary },
   dissolveBtn: { paddingHorizontal: Spacing.md, paddingVertical: 8, borderRadius: Radius.sm, backgroundColor: Colors.error + '22', borderWidth: 1, borderColor: Colors.error + '44' },
   dissolveBtnText: { fontSize: FontSize.xs, fontWeight: FontWeight.bold, color: Colors.error },
+  intlEventBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: Colors.ndp + '11', paddingHorizontal: Spacing.md, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: Colors.ndp + '33' },
+  intlEventFlag: { fontSize: 22 },
+  intlEventTitle: { fontSize: FontSize.xs, fontWeight: FontWeight.bold, color: Colors.textPrimary },
+  intlEventDesc: { fontSize: FontSize.xs, color: Colors.textSecondary },
+  intlEventActions: { flexDirection: 'row', gap: 4 },
+  intlEventBtn: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: Radius.sm },
+  intlEventBtnText: { fontSize: FontSize.xs, fontWeight: FontWeight.bold },
+  ethicsScandal: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: Colors.error + '0A', borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.error + '44', padding: Spacing.sm },
+  ethicsScandalTitle: { fontSize: FontSize.xs, fontWeight: FontWeight.extrabold, color: Colors.error, marginBottom: 2 },
+  ethicsScandalDesc: { fontSize: FontSize.xs, color: Colors.textPrimary, lineHeight: 16 },
+  ethicsScandalSubject: { fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 2 },
+  ethicsScandalActions: { alignItems: 'flex-end', gap: 4 },
+  ethicsBtn: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: Radius.sm, minWidth: 48, alignItems: 'center' },
+  ethicsBtnText: { fontSize: FontSize.xs, fontWeight: FontWeight.bold },
   gateCard: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: Colors.warning + '11', borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.warning + '33', padding: Spacing.sm },
   gateTitle: { fontSize: FontSize.xs, fontWeight: FontWeight.bold, color: Colors.warning, marginBottom: 3 },
   gateItem: { fontSize: FontSize.xs, color: Colors.textSecondary },

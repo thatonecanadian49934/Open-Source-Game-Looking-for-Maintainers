@@ -46,6 +46,8 @@ export default function RootLayout() {
             <Stack.Screen name="standing-committee" options={{ presentation: 'modal' }} />
             <Stack.Screen name="supply-opposition-days" options={{ presentation: 'modal' }} />
             <Stack.Screen name="speaker-election" options={{ animation: 'slide_from_bottom' }} />
+            <Stack.Screen name="parliamentary-motions" options={{ presentation: 'modal' }} />
+            <Stack.Screen name="action-log" options={{ presentation: 'modal' }} />
           </Stack>
         </GameProvider>
       </SafeAreaProvider>
