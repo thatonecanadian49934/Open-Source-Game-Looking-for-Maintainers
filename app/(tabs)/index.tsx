@@ -171,6 +171,13 @@ export default function DashboardScreen() {
   const supplyDeadlineWarning = gameState.currentWeek >= 20 && !supplyPassed && gameState.isGoverning;
   // Active ethics scandals
   const activeScandals = ethicsScandals.filter(s => !s.playerResponse);
+  // Bills introduced this week — cap new bill creation at 2 per week
+  const billsThisWeek = (bills || []).filter(b => b.introducedWeek === gameState.currentWeek).length;
+  const billCreationLocked = billsThisWeek >= 2;
+  // Parliamentary business: only show on monthly cycle (week divisible by 4) or critical events
+  const isMonthlyBusiness = gameState.currentWeek % 4 === 0;
+  const hasCriticalEvents = gameState.currentEvents.some(e => e.urgency === 'critical');
+  const showParliamentaryBusiness = gameState.currentEvents.length > 0 && (isMonthlyBusiness || hasCriticalEvents);
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -225,8 +232,8 @@ export default function DashboardScreen() {
         </View>
       </View>
 
-      {/* Speaker banner — only shown early in parliament if no Speaker yet. Hidden once elected. */}
-      {!speakerName && gameState.currentWeek <= 4 ? (
+      {/* Speaker banner — shown whenever no Speaker is elected (any week). Hidden once elected. */}
+      {!speakerName ? (
         <Pressable
           onPress={() => router.push('/speaker-election')}
           style={({ pressed }) => [styles.speakerBanner, pressed && { opacity: 0.85 }]}
@@ -452,6 +459,19 @@ export default function DashboardScreen() {
                 <MaterialCommunityIcons name="file-document-edit" size={22} color={Colors.info} />
                 <Text style={styles.actionText}>Parl. Motions</Text>
               </Pressable>
+              {/* Create Bill — disabled if 2 bills already introduced this week */}
+              <Pressable
+                onPress={() => billCreationLocked
+                  ? showAlert('Bill Limit Reached', `${billsThisWeek} bills have already been introduced this week. Introduce more next week.`)
+                  : router.push('/create-bill')
+                }
+                style={({ pressed }) => [styles.actionBtn, billCreationLocked && styles.actionBtnLocked, pressed && { opacity: 0.8 }]}
+              >
+                <MaterialCommunityIcons name="plus-box" size={22} color={billCreationLocked ? Colors.textMuted : Colors.success} />
+                <Text style={[styles.actionText, billCreationLocked && { color: Colors.textMuted }]}>
+                  {billCreationLocked ? `Bills Full (${billsThisWeek}/2)` : 'Create Bill'}
+                </Text>
+              </Pressable>
               <Pressable onPress={() => router.push('/action-log')} style={({ pressed }) => [styles.actionBtn, pressed && { opacity: 0.8 }]}>
                 <MaterialCommunityIcons name="book-open" size={22} color={Colors.textSecondary} />
                 <Text style={styles.actionText}>Action Log</Text>
@@ -568,8 +588,8 @@ export default function DashboardScreen() {
           </Pressable>
         ) : null}
 
-        {/* Events — appear once a month (~every 4 weeks) for major events only */}
-        {gameState.currentEvents.length > 0 && (gameState.currentWeek % 4 === 1 || gameState.currentEvents.some(e => e.urgency === 'critical' || e.urgency === 'high')) ? (
+        {/* Events — appear on monthly cycle (week % 4 === 0) or when critical events fire */}
+        {showParliamentaryBusiness ? (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>
               {gameState.isGoverning ? 'PARLIAMENTARY BUSINESS' : 'OPPOSITION RESPONSE REQUIRED'}
@@ -722,6 +742,7 @@ const styles = StyleSheet.create({
   actionBtn: { alignItems: 'center', gap: 6, backgroundColor: Colors.card, borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.surfaceBorder, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, minWidth: 90 },
   actionBtnDanger: { borderColor: Colors.error + '44', backgroundColor: Colors.error + '11' },
   actionBtnGold: { borderColor: Colors.gold + '44', backgroundColor: Colors.gold + '11' },
+  actionBtnLocked: { borderColor: Colors.textMuted + '44', backgroundColor: Colors.surfaceBorder + '44', opacity: 0.6 },
   actionText: { fontSize: 11, fontWeight: FontWeight.medium, color: Colors.textSecondary, textAlign: 'center' },
   billVoteReminder: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, backgroundColor: Colors.warning + '11', borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.warning + '44', padding: Spacing.md },
   billVoteReminderTitle: { fontSize: FontSize.sm, fontWeight: FontWeight.bold, color: Colors.warning },

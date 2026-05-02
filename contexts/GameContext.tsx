@@ -864,28 +864,33 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         advanceBills(prevBills, newState.currentWeek, newState.playerPartyId, newState.seats[newState.playerPartyId] || 0, TOTAL_SEATS, newState.isGoverning)
       );
 
-      // ── "THIS WEEK IN PARLIAMENT" — only appears once per month (~4 weeks) and only for gameplay-driven events ──
-      // Events must be triggered by actual gameplay: major bills passing, wars, crises, scandals, elections
-      // NOT random — check real game conditions
-      const hasActiveCrisis = activeWars.length > 0;
+      // ── "PARLIAMENTARY BUSINESS" — strict monthly cycle (week divisible by 4) OR genuine crises ──
+      // Never fires mid-month unless a critical threshold is crossed in the current week
+      const isNewMonth = newState.currentWeek % 4 === 0;
       const hasCriticalEvent = newState.currentEvents.some(e => e.urgency === 'critical');
-      const hasRecentEthicsScandal = ethicsScandals.some(s => s.week === newState.currentWeek || s.week === newState.currentWeek - 1);
-      const hasMajorLegislation = newState.currentWeek % 4 === 1; // monthly legislative cycle
-      const hasJudicialActivity = judicialCases.some(c => c.status === 'hearing');
+      const hasActiveCrisis = activeWars.length > 0;
+      const hasRecentEthicsScandal = ethicsScandals.some(
+        s => s.week === newState.currentWeek && s.severity === 'critical'
+      );
       const isElectionPeriod = newState.inElection;
 
-      // Only generate events if there's a gameplay reason AND we're at the monthly cycle or crisis
-      const shouldShowEvents = isElectionPeriod || hasCriticalEvent || hasActiveCrisis || hasRecentEthicsScandal ||
-        (hasMajorLegislation && (hasJudicialActivity || newState.stats.approvalRating < 35 || newState.stats.governmentApproval < 30));
+      // Only generate new events on month boundary OR true gameplay crisis
+      const shouldGenerateEvents = isNewMonth || isElectionPeriod || hasCriticalEvent ||
+        (hasActiveCrisis && newState.currentWeek % 2 === 0) || hasRecentEthicsScandal;
 
-      if (shouldShowEvents) {
+      if (shouldGenerateEvents) {
         fetchAIWeeklyEvents(newState).then(aiEvents => {
           if (aiEvents.length > 0) {
-            setGameState(gs => { if (!gs) return gs; return { ...gs, currentEvents: aiEvents.slice(0, hasCriticalEvent ? 3 : 1) }; });
+            // Monthly: max 1 event. Critical: up to 2.
+            const maxEvents = hasCriticalEvent || isElectionPeriod ? 2 : 1;
+            setGameState(gs => {
+              if (!gs) return gs;
+              return { ...gs, currentEvents: aiEvents.slice(0, maxEvents) };
+            });
           }
         });
       } else {
-        // Clear non-critical events between monthly cycles
+        // Between monthly cycles: clear all non-critical events
         setGameState(gs => {
           if (!gs) return gs;
           const criticalOnly = gs.currentEvents.filter(e => e.urgency === 'critical');
