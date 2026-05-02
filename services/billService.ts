@@ -396,11 +396,14 @@ export function advanceBills(
   totalSeats: number,
   isGoverning: boolean
 ): Bill[] {
-  // Add 2 new AI bills every week
-  const aiBills = getWeeklyAIBills(currentWeek);
+  // Only introduce 1–2 AI bills every 2 weeks (odd weeks only), never duplicate
   const existingIds = new Set(bills.map(b => b.id));
+  const shouldIntroduceBills = currentWeek % 2 === 1; // every other week
+  const aiBills = shouldIntroduceBills ? getWeeklyAIBills(currentWeek) : [];
+  // Limit to at most 2 new bills per interval; skip if already present
   const newAIBills: Bill[] = aiBills
     .filter((_, idx) => !existingIds.has(`ai_bill_${currentWeek}_${idx}`))
+    .slice(0, 2)
     .map((template, idx) => ({
       id: `ai_bill_${currentWeek}_${idx}`,
       ...template,

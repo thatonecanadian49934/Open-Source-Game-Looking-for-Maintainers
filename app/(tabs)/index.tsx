@@ -225,7 +225,7 @@ export default function DashboardScreen() {
         </View>
       </View>
 
-      {/* Speaker banner — only shown early in parliament if no Speaker yet */}
+      {/* Speaker banner — only shown early in parliament if no Speaker yet. Hidden once elected. */}
       {!speakerName && gameState.currentWeek <= 4 ? (
         <Pressable
           onPress={() => router.push('/speaker-election')}
@@ -235,11 +235,10 @@ export default function DashboardScreen() {
           <Text style={styles.speakerBannerText}>New Parliament — Elect the Speaker before the House can sit.</Text>
           <MaterialCommunityIcons name="chevron-right" size={14} color={Colors.gold} />
         </Pressable>
-      ) : speakerName ? (
-        <View style={styles.speakerElected}>
-          <MaterialCommunityIcons name="gavel" size={12} color={Colors.textMuted} />
-          <Text style={styles.speakerElectedText}>Speaker: {speakerName} (serves this parliament)</Text>
-          {lastAutosaveTime ? <Text style={styles.autosaveIndicator}>Autosaved {lastAutosaveTime}</Text> : null}
+      ) : lastAutosaveTime ? (
+        <View style={styles.autosaveBar}>
+          <MaterialCommunityIcons name="content-save-check" size={11} color={Colors.textMuted} />
+          <Text style={styles.autosaveIndicator}>Autosaved {lastAutosaveTime}</Text>
         </View>
       ) : null}
 
@@ -457,6 +456,10 @@ export default function DashboardScreen() {
                 <MaterialCommunityIcons name="book-open" size={22} color={Colors.textSecondary} />
                 <Text style={styles.actionText}>Action Log</Text>
               </Pressable>
+              <Pressable onPress={() => router.push('/whip-management')} style={({ pressed }) => [styles.actionBtn, pressed && { opacity: 0.8 }]}>
+                <MaterialCommunityIcons name="account-alert" size={22} color={Colors.error} />
+                <Text style={styles.actionText}>Party Whip</Text>
+              </Pressable>
               <Pressable onPress={() => router.push('/standing-committee')} style={({ pressed }) => [styles.actionBtn, pressed && { opacity: 0.8 }]}>
                 <MaterialCommunityIcons name="account-group" size={22} color={Colors.info} />
                 <Text style={styles.actionText}>Committees</Text>
@@ -537,12 +540,12 @@ export default function DashboardScreen() {
                 <MaterialCommunityIcons name="scale-balance" size={22} color={Colors.warning} />
                 <Text style={styles.actionText}>Accountability</Text>
               </Pressable>
-              {!speakerName ? (
-                <Pressable onPress={() => router.push('/speaker-election')} style={({ pressed }) => [styles.actionBtn, styles.actionBtnGold, pressed && { opacity: 0.8 }]}>
-                  <MaterialCommunityIcons name="gavel" size={22} color={Colors.gold} />
-                  <Text style={[styles.actionText, { color: Colors.gold }]}>Elect Speaker</Text>
-                </Pressable>
-              ) : null}
+              <Pressable onPress={() => router.push('/speaker-election')} style={({ pressed }) => [styles.actionBtn, !speakerName ? styles.actionBtnGold : {}, pressed && { opacity: 0.8 }]}>
+                <MaterialCommunityIcons name="gavel" size={22} color={speakerName ? Colors.textMuted : Colors.gold} />
+                <Text style={[styles.actionText, { color: speakerName ? Colors.textMuted : Colors.gold }]}>
+                  {speakerName ? `Speaker: ${speakerName.split(' ').slice(-1)[0]}` : 'Elect Speaker'}
+                </Text>
+              </Pressable>
               {!gameState.isGoverning && gameState.confidenceVoteAvailable ? (
                 <Pressable onPress={handleConfidenceVote} style={({ pressed }) => [styles.actionBtn, styles.actionBtnDanger, pressed && { opacity: 0.8 }]}>
                   <MaterialCommunityIcons name="vote" size={22} color={Colors.error} />
@@ -565,11 +568,11 @@ export default function DashboardScreen() {
           </Pressable>
         ) : null}
 
-        {/* Events — only show when present (appears rarely) */}
-        {gameState.currentEvents.length > 0 ? (
+        {/* Events — appear once a month (~every 4 weeks) for major events only */}
+        {gameState.currentEvents.length > 0 && (gameState.currentWeek % 4 === 1 || gameState.currentEvents.some(e => e.urgency === 'critical' || e.urgency === 'high')) ? (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>
-              {gameState.isGoverning ? 'PARLIAMENTARY BUSINESS THIS WEEK' : 'OPPOSITION RESPONSE REQUIRED'}
+              {gameState.isGoverning ? 'PARLIAMENTARY BUSINESS' : 'OPPOSITION RESPONSE REQUIRED'}
             </Text>
             <View style={[styles.eventRoleHint, gameState.isGoverning ? {} : { backgroundColor: partyColor + '0D', borderColor: partyColor + '22' }]}>
               <MaterialCommunityIcons name={gameState.isGoverning ? 'shield-crown' : 'account-voice'} size={12} color={gameState.isGoverning ? Colors.liberal : partyColor} />
@@ -655,9 +658,8 @@ const styles = StyleSheet.create({
   govStatusText: { fontSize: FontSize.xs, fontWeight: FontWeight.bold, letterSpacing: 0.5 },
   speakerBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: Colors.gold + '11', paddingHorizontal: Spacing.md, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: Colors.gold + '33' },
   speakerBannerText: { flex: 1, fontSize: FontSize.xs, color: Colors.gold, fontWeight: FontWeight.semibold },
-  speakerElected: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: Spacing.md, paddingVertical: 6, backgroundColor: Colors.surface, borderBottomWidth: 1, borderBottomColor: Colors.surfaceBorder },
-  speakerElectedText: { fontSize: FontSize.xs, color: Colors.textMuted },
-  autosaveIndicator: { marginLeft: 'auto', fontSize: FontSize.xs, color: Colors.textMuted, fontStyle: 'italic' },
+  autosaveBar: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: Spacing.md, paddingVertical: 5, backgroundColor: Colors.surface, borderBottomWidth: 1, borderBottomColor: Colors.surfaceBorder },
+  autosaveIndicator: { fontSize: FontSize.xs, color: Colors.textMuted, fontStyle: 'italic' },
   scrollView: { flex: 1 },
   scrollContent: { padding: Spacing.md, gap: Spacing.md },
   section: { gap: Spacing.sm },

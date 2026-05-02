@@ -864,21 +864,28 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         advanceBills(prevBills, newState.currentWeek, newState.playerPartyId, newState.seats[newState.playerPartyId] || 0, TOTAL_SEATS, newState.isGoverning)
       );
 
-      // ── "THIS WEEK IN PARLIAMENT" — appears rarely (25% chance, only on major events) ──
-      // Only show events for major legislation, crises, elections, wars
-      const hasActiveWar = activeWars.length > 0;
+      // ── "THIS WEEK IN PARLIAMENT" — only appears once per month (~4 weeks) and only for gameplay-driven events ──
+      // Events must be triggered by actual gameplay: major bills passing, wars, crises, scandals, elections
+      // NOT random — check real game conditions
+      const hasActiveCrisis = activeWars.length > 0;
       const hasCriticalEvent = newState.currentEvents.some(e => e.urgency === 'critical');
-      const hasRecentScandal = ethicsScandals.some(s => s.week === newState.currentWeek);
+      const hasRecentEthicsScandal = ethicsScandals.some(s => s.week === newState.currentWeek || s.week === newState.currentWeek - 1);
+      const hasMajorLegislation = newState.currentWeek % 4 === 1; // monthly legislative cycle
+      const hasJudicialActivity = judicialCases.some(c => c.status === 'hearing');
+      const isElectionPeriod = newState.inElection;
 
-      const shouldShowEvents = hasCriticalEvent || hasRecentScandal || hasActiveWar || Math.random() < 0.2;
+      // Only generate events if there's a gameplay reason AND we're at the monthly cycle or crisis
+      const shouldShowEvents = isElectionPeriod || hasCriticalEvent || hasActiveCrisis || hasRecentEthicsScandal ||
+        (hasMajorLegislation && (hasJudicialActivity || newState.stats.approvalRating < 35 || newState.stats.governmentApproval < 30));
 
-      if (shouldShowEvents && Math.random() < 0.3) {
+      if (shouldShowEvents) {
         fetchAIWeeklyEvents(newState).then(aiEvents => {
           if (aiEvents.length > 0) {
-            setGameState(gs => { if (!gs) return gs; return { ...gs, currentEvents: aiEvents.slice(0, 2) }; });
+            setGameState(gs => { if (!gs) return gs; return { ...gs, currentEvents: aiEvents.slice(0, hasCriticalEvent ? 3 : 1) }; });
           }
         });
       } else {
+        // Clear non-critical events between monthly cycles
         setGameState(gs => {
           if (!gs) return gs;
           const criticalOnly = gs.currentEvents.filter(e => e.urgency === 'critical');
