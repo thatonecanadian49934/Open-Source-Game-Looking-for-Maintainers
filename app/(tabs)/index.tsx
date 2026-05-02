@@ -171,13 +171,13 @@ export default function DashboardScreen() {
   const supplyDeadlineWarning = gameState.currentWeek >= 20 && !supplyPassed && gameState.isGoverning;
   // Active ethics scandals
   const activeScandals = ethicsScandals.filter(s => !s.playerResponse);
-  // Bills introduced this week — cap new bill creation at 2 per week
+  // Bills introduced this week — cap at 2 (matches bill service hard limit)
   const billsThisWeek = (bills || []).filter(b => b.introducedWeek === gameState.currentWeek).length;
   const billCreationLocked = billsThisWeek >= 2;
-  // Parliamentary business: only show on monthly cycle (week divisible by 4) or critical events
-  const isMonthlyBusiness = gameState.currentWeek % 4 === 0;
-  const hasCriticalEvents = gameState.currentEvents.some(e => e.urgency === 'critical');
-  const showParliamentaryBusiness = gameState.currentEvents.length > 0 && (isMonthlyBusiness || hasCriticalEvents);
+  // Parliamentary business: show only when events exist (generated monthly from gameplay events by GameContext)
+  const showParliamentaryBusiness = gameState.currentEvents.length > 0;
+  // SPEAKER BANNER — single source of truth: null/empty = show, otherwise hide immediately
+  const showSpeakerBanner = !speakerName;
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -232,8 +232,8 @@ export default function DashboardScreen() {
         </View>
       </View>
 
-      {/* Speaker banner — shown whenever no Speaker is elected (any week). Hidden once elected. */}
-      {!speakerName ? (
+      {/* SPEAKER BANNER — tied directly to speaker role: null = show, elected = hide immediately */}
+      {showSpeakerBanner ? (
         <Pressable
           onPress={() => router.push('/speaker-election')}
           style={({ pressed }) => [styles.speakerBanner, pressed && { opacity: 0.85 }]}
@@ -242,11 +242,6 @@ export default function DashboardScreen() {
           <Text style={styles.speakerBannerText}>New Parliament — Elect the Speaker before the House can sit.</Text>
           <MaterialCommunityIcons name="chevron-right" size={14} color={Colors.gold} />
         </Pressable>
-      ) : lastAutosaveTime ? (
-        <View style={styles.autosaveBar}>
-          <MaterialCommunityIcons name="content-save-check" size={11} color={Colors.textMuted} />
-          <Text style={styles.autosaveIndicator}>Autosaved {lastAutosaveTime}</Text>
-        </View>
       ) : null}
 
       <ScrollView
@@ -588,7 +583,7 @@ export default function DashboardScreen() {
           </Pressable>
         ) : null}
 
-        {/* Events — appear on monthly cycle (week % 4 === 0) or when critical events fire */}
+        {/* Events — appear only when GameContext has generated them (monthly, from gameplay events) */}
         {showParliamentaryBusiness ? (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>

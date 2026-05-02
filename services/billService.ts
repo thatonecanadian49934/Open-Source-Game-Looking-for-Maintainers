@@ -396,38 +396,47 @@ export function advanceBills(
   totalSeats: number,
   isGoverning: boolean
 ): Bill[] {
-  // Only introduce 1–2 AI bills every 2 weeks (odd weeks only), never duplicate
+  // ── CONTROLLED BILL INTRODUCTION: 1–2 per week, never more ──
+  // Count how many bills were already introduced this week (player-created + AI)
   const existingIds = new Set(bills.map(b => b.id));
-  const shouldIntroduceBills = currentWeek % 2 === 1; // every other week
-  const aiBills = shouldIntroduceBills ? getWeeklyAIBills(currentWeek) : [];
-  // Limit to at most 2 new bills per interval; skip if already present
-  const newAIBills: Bill[] = aiBills
-    .filter((_, idx) => !existingIds.has(`ai_bill_${currentWeek}_${idx}`))
-    .slice(0, 2)
-    .map((template, idx) => ({
-      id: `ai_bill_${currentWeek}_${idx}`,
-      ...template,
-      stage: 'house_first_reading' as BillStage,
-      introducedWeek: currentWeek,
-      stageStartWeek: currentWeek,
-      playerVote: null,
-      votesFor: 0,
-      votesAgainst: 0,
-      weeksAtStage: 0,
-      prioritized: false,
-      voteHistory: [],
-      billAmendments: [],
-      stageWeeksRemaining: DEFAULT_STAGE_WEEKS,
-      scheduledVoteWeek: null,
-      isAIGenerated: true,
-      accelerated: false,
-      defaultStageWeeks: DEFAULT_STAGE_WEEKS,
-      amendments: [],
-      passed: false,
-      isMinisterSponsored: template.type === 'government',
-      isPlayerBill: false,
-      committeeReportTabled: false,
-    }));
+  const billsIntroducedThisWeek = bills.filter(b => b.introducedWeek === currentWeek).length;
+  const slotsAvailable = Math.max(0, 2 - billsIntroducedThisWeek);
+
+  // Every week: attempt to introduce AI bills up to remaining slot count
+  const newAIBills: Bill[] = [];
+  if (slotsAvailable > 0) {
+    const candidates = getWeeklyAIBills(currentWeek);
+    for (let i = 0; i < candidates.length && newAIBills.length < slotsAvailable; i++) {
+      const template = candidates[i];
+      const candidateId = `ai_bill_${currentWeek}_${i}`;
+      if (!existingIds.has(candidateId)) {
+        newAIBills.push({
+          id: candidateId,
+          ...template,
+          stage: 'house_first_reading' as BillStage,
+          introducedWeek: currentWeek,
+          stageStartWeek: currentWeek,
+          playerVote: null,
+          votesFor: 0,
+          votesAgainst: 0,
+          weeksAtStage: 0,
+          prioritized: false,
+          voteHistory: [],
+          billAmendments: [],
+          stageWeeksRemaining: DEFAULT_STAGE_WEEKS,
+          scheduledVoteWeek: null,
+          isAIGenerated: true,
+          accelerated: false,
+          defaultStageWeeks: DEFAULT_STAGE_WEEKS,
+          amendments: [],
+          passed: false,
+          isMinisterSponsored: template.type === 'government',
+          isPlayerBill: false,
+          committeeReportTabled: false,
+        });
+      }
+    }
+  }
 
   const advancedBills = bills.map(bill => {
     if (bill.stage === 'royal_assent' || bill.stage === 'defeated') return bill;

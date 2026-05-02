@@ -864,37 +864,48 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         advanceBills(prevBills, newState.currentWeek, newState.playerPartyId, newState.seats[newState.playerPartyId] || 0, TOTAL_SEATS, newState.isGoverning)
       );
 
-      // ── "PARLIAMENTARY BUSINESS" — strict monthly cycle (week divisible by 4) OR genuine crises ──
-      // Never fires mid-month unless a critical threshold is crossed in the current week
+      // ── PARLIAMENTARY BUSINESS — monthly only, sourced from existing gameplay events ──
+      // Hard rules: NO weekly generation, NO random events, ONLY from real gameplay state
       const isNewMonth = newState.currentWeek % 4 === 0;
-      const hasCriticalEvent = newState.currentEvents.some(e => e.urgency === 'critical');
-      const hasActiveCrisis = activeWars.length > 0;
-      const hasRecentEthicsScandal = ethicsScandals.some(
-        s => s.week === newState.currentWeek && s.severity === 'critical'
-      );
-      const isElectionPeriod = newState.inElection;
 
-      // Only generate new events on month boundary OR true gameplay crisis
-      const shouldGenerateEvents = isNewMonth || isElectionPeriod || hasCriticalEvent ||
-        (hasActiveCrisis && newState.currentWeek % 2 === 0) || hasRecentEthicsScandal;
+      if (isNewMonth) {
+        // Gather real gameplay events to build business from
+        const activeBills = bills.filter(
+          b => b.stage !== 'royal_assent' && b.stage !== 'defeated'
+        );
+        const hasActiveBills = activeBills.length > 0;
+        const hasActiveWars = activeWars.length > 0;
+        const hasActiveEmergency = emergencyActState.isActive;
+        const hasUnresolvedScandal = ethicsScandals.some(s => !s.playerResponse);
+        const hasSupplyDeadline = newState.currentWeek >= 20 && !supplyPassed && newState.isGoverning;
+        const hasActiveJudicialCase = judicialCases.some(c => c.status !== 'decided');
 
-      if (shouldGenerateEvents) {
-        fetchAIWeeklyEvents(newState).then(aiEvents => {
-          if (aiEvents.length > 0) {
-            // Monthly: max 1 event. Critical: up to 2.
-            const maxEvents = hasCriticalEvent || isElectionPeriod ? 2 : 1;
-            setGameState(gs => {
-              if (!gs) return gs;
-              return { ...gs, currentEvents: aiEvents.slice(0, maxEvents) };
-            });
-          }
-        });
+        const hasRealBusinessToReport =
+          hasActiveBills || hasActiveWars || hasActiveEmergency ||
+          hasUnresolvedScandal || hasSupplyDeadline || hasActiveJudicialCase;
+
+        if (hasRealBusinessToReport) {
+          fetchAIWeeklyEvents(newState).then(aiEvents => {
+            if (aiEvents.length > 0) {
+              // Maximum 1 event per monthly cycle
+              setGameState(gs => {
+                if (!gs) return gs;
+                return { ...gs, currentEvents: aiEvents.slice(0, 1) };
+              });
+            }
+          });
+        } else {
+          // Nothing to report — clear events
+          setGameState(gs => {
+            if (!gs) return gs;
+            return { ...gs, currentEvents: [] };
+          });
+        }
       } else {
-        // Between monthly cycles: clear all non-critical events
+        // Non-month weeks: clear all events — no generation at all
         setGameState(gs => {
           if (!gs) return gs;
-          const criticalOnly = gs.currentEvents.filter(e => e.urgency === 'critical');
-          return { ...gs, currentEvents: criticalOnly.slice(0, 1) };
+          return { ...gs, currentEvents: [] };
         });
       }
 
